@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { FlowError, exitCodeFor, toFlowError } from "../core/errors.js";
 import { openWorkspace, resolveActor, type Workspace } from "../core/workspace.js";
 import { allCommands, lookup, type CommandCtx, type Options } from "./registry.js";
+import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
 import "./commands/core.js";
 import "./commands/extra.js";
 
@@ -95,7 +96,10 @@ export async function main(argv: string[], io: MainIO = {}): Promise<number> {
       actor: resolveActor(typeof values.actor === "string" ? values.actor : null),
       cwd,
       ws() {
-        if (!ws) ws = openWorkspace(cwd);
+        if (!ws) {
+          ws = openWorkspace(cwd);
+          attachNotifiers(ws);
+        }
         return ws;
       },
       print(data, human) {
@@ -122,6 +126,11 @@ export async function main(argv: string[], io: MainIO = {}): Promise<number> {
     else err(`error [${fe.code}]: ${fe.message}${fe.nextSteps.length ? `\nnext: ${fe.nextSteps.join("\n      ")}` : ""}`);
     return exitCodeFor(fe);
   } finally {
-    (ws as Workspace | null)?.close();
+    const w = ws as Workspace | null;
+    if (w) {
+      // Deliver notifications produced by this command (bounded; failures stay queued with backoff).
+      if (w.store.outboxStats().pending > 0) await flushOutbox(w, { budgetMs: 8000 }).catch(() => undefined);
+      w.close();
+    }
   }
 }

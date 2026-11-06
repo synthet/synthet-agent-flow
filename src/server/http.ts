@@ -10,6 +10,7 @@ import { actorKind } from "../core/store.js";
 import type { Verdict } from "../core/types.js";
 import type { Workspace } from "../core/workspace.js";
 import { APP_CSS, APP_JS, DASHBOARD_HTML, FAVICON_SVG } from "./dashboard.js";
+import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
 
 export interface ServeOptions {
   host?: string;
@@ -156,12 +157,14 @@ export function startServer(ws: Workspace, opts: ServeOptions = {}): Promise<Run
   const keepAlive = setInterval(() => {
     for (const c of clients) c.write(`: ping ${Date.now()}\n\n`);
   }, 15_000);
+  const detach = attachNotifiers(ws);
   const reaper = setInterval(() => {
     try {
       store.reap();
     } catch (err) {
       log(`reap failed: ${String(err)}`);
     }
+    if (store.outboxStats().pending > 0) void flushOutbox(ws, { budgetMs: 10_000 }).catch((err) => log(`outbox: ${String(err)}`));
   }, opts.reapMs ?? 30_000);
 
   const authorizeWrite = (req: IncomingMessage) => {
@@ -427,6 +430,7 @@ export function startServer(ws: Workspace, opts: ServeOptions = {}): Promise<Run
             clearInterval(poll);
             clearInterval(keepAlive);
             clearInterval(reaper);
+            detach();
             for (const c of clients) c.end();
             server.close(() => done());
             server.closeAllConnections?.();

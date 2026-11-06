@@ -8,6 +8,8 @@ import { currentBranch, resolveRoot, worktreeTop, flowPaths } from "../core/path
 import type { Ticket } from "../core/types.js";
 import { isInitialized, openWorkspace, type Workspace } from "../core/workspace.js";
 import { execFileSync } from "node:child_process";
+import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
+import { maybeReconcile } from "../integrations/github.js";
 
 /**
  * Claude Code hook handlers (`agent-flow hook <event>`).
@@ -339,8 +341,10 @@ export async function runHook(event: string, stdin: string, env: NodeJS.ProcessE
   let ws: Workspace | null = null;
   try {
     ws = openWorkspace(cwd);
+    attachNotifiers(ws);
     switch (event as HookEvent) {
       case "session-start":
+        await maybeReconcile(ws);
         return sessionStart(ws, input, env);
       case "pre-tool":
         return preTool(ws, input, env);
@@ -363,7 +367,10 @@ export async function runHook(event: string, stdin: string, env: NodeJS.ProcessE
     // Fail open, but leave a trace for debugging.
     return { stdout: "{}", stderr: `agent-flow hook ${event}: ${err instanceof Error ? err.message : String(err)}`, code: 0 };
   } finally {
-    ws?.close();
+    if (ws) {
+      if (ws.store.outboxStats().pending > 0) await flushOutbox(ws, { budgetMs: 3000 }).catch(() => undefined);
+      ws.close();
+    }
   }
 }
 

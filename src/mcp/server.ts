@@ -11,6 +11,7 @@ import type { Action } from "../core/states.js";
 import { openWorkspace, resolveActor, type Workspace } from "../core/workspace.js";
 import { applyPlan, buildPlan, type ImportFormat } from "../importers/index.js";
 import { WORKFLOW_OVERVIEW } from "./overview.js";
+import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
 
 export const TOOL_NAMES = [
   "flow_ready",
@@ -70,7 +71,10 @@ export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpSer
   const defaultActor = resolveActor(opts.actor ?? null);
   let ws: Workspace | null = opts.workspace ?? null;
   const workspace = () => {
-    if (!ws) ws = openWorkspace(cwd);
+    if (!ws) {
+      ws = openWorkspace(cwd);
+      attachNotifiers(ws);
+    }
     return ws;
   };
   const who = (a?: string) => a ?? defaultActor;
@@ -89,7 +93,9 @@ export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpSer
       try {
         const w = workspace();
         w.store.reap();
-        return ok(await fn(args));
+        const result = ok(await fn(args));
+        if (w.store.outboxStats().pending > 0) void flushOutbox(w, { budgetMs: 5000 }).catch(() => undefined);
+        return result;
       } catch (err) {
         return fail(err);
       }

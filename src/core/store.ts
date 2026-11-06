@@ -166,6 +166,12 @@ export class FlowStore {
     return event;
   }
 
+  /** Append an audited event from an integration (loop iterations, mirror syncs, swarm reviews). */
+  record(action: string, actor: string, ticketId: string | null, payload: Record<string, unknown> = {}): FlowEvent {
+    if (!/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/.test(action)) throw new FlowError("INVALID_ARGUMENT", `bad event action ${action}`);
+    return this.tx(() => this.emit(action, actor, ticketId && this.exists(ticketId) ? ticketId : null, payload));
+  }
+
   // ───────────────────────────────── reads ─────────────────────────────────
 
   private row(id: string): Row {

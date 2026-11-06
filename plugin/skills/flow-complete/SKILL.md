@@ -18,13 +18,13 @@ risk_class: medium
    If it fails, fix the failures. Never skip a failing test or disable a check.
 3. **Commit and push the ticket branch.** Run `git push -u origin <branch>`.
    Never push to the default branch. Never force-push; the hooks refuse both.
-4. **Open the PR** (if a git remote exists). Use the body template from the agent-flow repo, `templates/pr-body.md`:
-   - first line: `Refs <id>`
-   - add `Closes #<issue>` if the ticket has `github_issue`
-   - summary, an AC checklist with evidence, and test results.
-
-   Command: `gh pr create --title "<type>(<scope>): <ticket title>" --body-file <file>`.
-   Then record the link: `agent-flow edit <id> --spec-ref …` (optional). `agent-flow github reconcile` picks up the PR state later.
+4. **Open the PR** (when there is a git remote). The easiest way is:
+   ```
+   agent-flow github pr <id>
+   ```
+   It renders `templates/pr-body.md` with `Refs <id>`, `Closes #<issue>` when the ticket is mirrored, and the AC checklist with evidence, then records `pr_url`.
+   Or run `gh pr create` yourself, as long as the body keeps `Refs <id>`.
+   Later PR events (changes requested, merged) flow back through `agent-flow github reconcile`, which also runs at session start.
 5. **Write the handoff note.** This is required:
    ```
    agent-flow note <id> --handoff "Changed: … | Decisions: … (why) | Left: … | Gotchas: … | PR: <url>"

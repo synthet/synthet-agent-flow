@@ -1,0 +1,11 @@
+---
+description: Work tracking through agent-flow (ready queue, claims, evidence, handoffs)
+alwaysApply: true
+---
+
+- All work is tracked in **agent-flow**, through the `flow_*` MCP tools or the `agent-flow` CLI. Never use TODO.md files.
+- Pick from `flow_ready`. Claim with `flow_claim` before editing code. Use one branch per ticket (`af/<id>-<slug>`).
+- Record every acceptance criterion with `flow_ac {op:"verify", verdict, evidence}`. A criterion only counts as Verified when it has evidence.
+- Write a handoff with `flow_comment {kind:"handoff"}`, then call `flow_transition {action:"submit"}`. Never approve your own ticket.
+- File discovered work with `flow_create {discovered_from}`. When stuck, block the ticket with `flow_transition {action:"block", reason, unblock_condition}`.
+- PR bodies contain `Refs <ticket-id>`.
