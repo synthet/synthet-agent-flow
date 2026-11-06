@@ -158,6 +158,10 @@ register({
     const { swarmReview } = await import("../../integrations/swarm.js");
     const ws = ctx.ws();
     const res = await swarmReview(ws, ctx.positionals[0] ?? "", { cwd: ctx.cwd, harnesses: list(ctx.values.agents), dryRun: bool(ctx.values["dry-run"]) });
+    if (res.dry_run) {
+      const rows = (res.dry_run.harnesses ?? []) as Array<{ id?: string; ok?: boolean; commandPreview?: string; summary?: string }>;
+      return ctx.print(res.dry_run, () => rows.map((r) => `${r.id}: ${r.ok ? "ready" : "unavailable"} — ${(r.commandPreview ?? r.summary ?? "").split("\n")[0]}`).join("\n") || "no harnesses available");
+    }
     ctx.print(res, () =>
       [`swarm verdict: ${res.verdict}${res.approved ? " (auto-approved)" : ""}`, ...Object.entries(res.ac).map(([k, v]) => `  ${k}: ${v.value ?? "disputed"} ${JSON.stringify(v.counts)}`), ...res.harnesses.map((h) => `  ${h.harness}: ${h.ok ? "ok" : "failed"} ${h.summary}`)].join("\n"),
     );

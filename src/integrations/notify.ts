@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import type { FlowEvent } from "../core/types.js";
 import type { Workspace } from "../core/workspace.js";
 import { defaultRunner, type Runner } from "./exec.js";
-import { deliver, jobForEvent, type MailboxJob } from "./mailbox.js";
+import { MailboxSession, jobForEvent, type MailboxJob } from "./mailbox.js";
+import type { McpOpener } from "./mcp-client.js";
 
 /**
  * Side effects of tracker events go through the outbox (retry with backoff, never blocking a write):
@@ -42,8 +44,9 @@ export function attachNotifiers(ws: Workspace): () => void {
 }
 
 /** Deliver due outbox jobs. Bounded by `budgetMs` so a CLI command never hangs on a slow side effect. */
-export async function flushOutbox(ws: Workspace, opts: { budgetMs?: number; run?: Runner } = {}): Promise<{ sent: number; failed: number }> {
+export async function flushOutbox(ws: Workspace, opts: { budgetMs?: number; run?: Runner; openMcp?: McpOpener } = {}): Promise<{ sent: number; failed: number }> {
   const run = opts.run ?? defaultRunner;
+  let mailbox: MailboxSession | null = null;
   const deadline = Date.now() + (opts.budgetMs ?? 8000);
   let sent = 0;
   let failed = 0;
@@ -56,7 +59,10 @@ export async function flushOutbox(ws: Workspace, opts: { budgetMs?: number; run?
           ws.store.outboxResult(job.id, true);
           continue;
         }
-        await deliver(ws, job.payload as unknown as MailboxJob, run);
+        mailbox ??= new MailboxSession(ws, opts.openMcp, run);
+        const mj = job.payload as unknown as MailboxJob;
+        // Content-derived key: the text carries the event seq + timestamp, so retries dedupe but new events never collide.
+        await mailbox.deliver(mj, `agent-flow:${createHash("sha256").update(`${mj.subject}\n${mj.text}`).digest("hex").slice(0, 40)}`);
       } else if (job.target === "github") {
         const { resolveRepo, syncIssueState } = await import("./github.js");
         repo ??= await resolveRepo(ws, run);
@@ -70,5 +76,6 @@ export async function flushOutbox(ws: Workspace, opts: { budgetMs?: number; run?
       failed++;
     }
   }
+  await mailbox?.close();
   return { sent, failed };
 }

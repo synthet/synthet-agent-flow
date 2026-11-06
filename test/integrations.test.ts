@@ -8,12 +8,14 @@ import { initWorkspace, openWorkspace, type Workspace } from "../src/core/worksp
 import { claimTicket } from "../src/core/service.js";
 import { attachNotifiers, flushOutbox } from "../src/integrations/notify.js";
 import { applyPrState, pushIssues, reconcile, renderTemplate, prBody, githubWebhookHandler } from "../src/integrations/github.js";
-import { swarmReview, parseSwarm } from "../src/integrations/swarm.js";
+import { swarmReview } from "../src/integrations/swarm.js";
 import { createWorktree, worktreePath } from "../src/integrations/worktree.js";
 import { runLoop, startLoop, stopLoop } from "../src/integrations/loop.js";
 import { applyEdits, planFramework, planInstall, rollback } from "../src/integrations/install.js";
 import { startServer } from "../src/server/http.js";
 import type { Runner } from "../src/integrations/exec.js";
+import type { McpOpener, McpSpec } from "../src/integrations/mcp-client.js";
+import { lastJsonObject } from "../src/integrations/swarm.js";
 import { tempDir } from "./helpers.js";
 
 const ok = (stdout = ""): RunResult => ({ code: 0, stdout, stderr: "", timedOut: false, ms: 1 });
@@ -39,37 +41,82 @@ function recorder(respond: (argv: string[], input?: string) => RunResult): { run
   };
 }
 
+/** Fake stdio MCP server: records spawns and tool calls; `respond` returns the tool's JSON (throw to fail). */
+function fakeMcp(respond: (tool: string, args: Record<string, unknown>) => unknown) {
+  const spawns: McpSpec[] = [];
+  const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
+  let closed = 0;
+  const open: McpOpener = async (spec) => {
+    spawns.push(spec);
+    return {
+      call: async (tool, args) => {
+        calls.push({ tool, args });
+        return respond(tool, args);
+      },
+      close: async () => {
+        closed++;
+      },
+    };
+  };
+  return { open, spawns, calls, closed: () => closed };
+}
+
 describe("mailbox notifications", () => {
-  it("queues events in the outbox and publishes through agent-mail (register once, review → peer send)", async () => {
-    const { ws } = repo({ mailbox: { enabled: true, scope: "team-flow", reviewPeer: "Laptop" } } as never);
+  it("delivers through the mailbox journal over MCP: one session per flush, register + subscribe, keyed publishes, review → peer send", async () => {
+    const { ws } = repo({ mailbox: { enabled: true, scope: "team-flow", reviewPeer: "reviewer-pc" } } as never);
     attachNotifiers(ws);
     const t = ws.store.create({ title: "Notify me", status: "ready" }, "human:x");
     claimTicket(ws, t.id, "claude:a");
     ws.store.comment(t.id, "handoff", "done", "claude:a");
     ws.store.transition(t.id, "submit", "claude:a");
     expect(ws.store.outboxStats().pending).toBe(2); // claimed + review
+    // Response shapes recorded from a real synthet-agent-mailbox 0.3.0 build.
+    const mcp = fakeMcp((tool) =>
+      tool === "mailbox_register_session"
+        ? { agent_id: "4990c66e-526e-498b-9414-8810ee68a588", session_id: "agent-flow" }
+        : tool === "mailbox_subscribe"
+          ? { scope_id: "team-flow", agent_id: "4990c66e-526e-498b-9414-8810ee68a588" }
+          : { duplicate: false, message_id: "882d7fcb-26d3-4203-8082-64c904a9486b", thread_id: "882d7fcb-26d3-4203-8082-64c904a9486b" },
+    );
     const { run, calls } = recorder(() => ok("{}"));
-    const res = await flushOutbox(ws, { run });
-    expect(res).toEqual({ sent: 2, failed: 0 });
-    const verbs = calls.map((c) => c.argv.slice(0, 2).join(" "));
-    expect(verbs).toEqual(["agent-mail register", "agent-mail publish", "agent-mail publish", "agent-mail send"]);
-    const publish = calls[1].argv;
-    expect(publish).toContain("--scope");
-    expect(publish[publish.indexOf("--scope") + 1]).toBe("team-flow");
-    expect(publish.join(" ")).toContain(`[flow] ${t.id} claimed`);
-    expect(calls[3].argv[2]).toBe("Laptop");
+    expect(await flushOutbox(ws, { run, openMcp: mcp.open })).toEqual({ sent: 2, failed: 0 });
+    expect(mcp.spawns).toHaveLength(1);
+    expect(mcp.spawns[0].args.slice(-6)).toEqual(["mcp", "--no-listen", "--harness", "agent-flow", "--agent-name", "agent-flow"]);
+    expect(mcp.calls.map((c) => c.tool)).toEqual(["mailbox_register_session", "mailbox_subscribe", "mailbox_publish", "mailbox_publish"]);
+    const pub = mcp.calls[2].args;
+    expect(pub).toMatchObject({ session_id: "agent-flow", audience: "group", scope_id: "team-flow", subject: `[flow] ${t.id} claimed` });
+    expect(String(pub.idempotency_key)).toMatch(/^agent-flow:[0-9a-f]{40}$/);
+    expect(mcp.calls[3].args.idempotency_key).not.toBe(pub.idempotency_key);
+    expect(mcp.closed()).toBe(1);
+    // Only the review event goes to the peer, via the CLI.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].argv.slice(0, 3)).toEqual(["agent-mail", "send", "reviewer-pc"]);
     ws.close();
   });
 
-  it("keeps failed deliveries queued with backoff and never breaks the write", async () => {
-    const { ws } = repo({ mailbox: { enabled: true } } as never);
+  it("explains a missing mailbox identity and keeps the job queued with backoff", async () => {
+    const { ws } = repo({ mailbox: { enabled: true, scope: "team-flow" } } as never);
     attachNotifiers(ws);
     const t = ws.store.create({ title: "x", status: "ready" }, "human:x");
     claimTicket(ws, t.id, "claude:a");
-    const { run } = recorder(() => fail("agent-mail: not found", -1));
-    expect(await flushOutbox(ws, { run })).toEqual({ sent: 0, failed: 1 });
+    const mcp = fakeMcp(() => {
+      throw new Error("ENOENT: no such file or directory, open '/home/u/.agent-mail/identity.json'");
+    });
+    expect(await flushOutbox(ws, { openMcp: mcp.open })).toEqual({ sent: 0, failed: 1 });
+    const row = ws.store.db.prepare("SELECT last_error FROM outbox").get() as { last_error: string };
+    expect(row.last_error).toContain("no identity");
     expect(ws.store.outboxStats().pending).toBe(1);
     expect(ws.store.dueOutbox()).toHaveLength(0); // backed off
+    ws.close();
+  });
+
+  it("requires a scope for group audiences", async () => {
+    const { ws } = repo({ mailbox: { enabled: true } } as never);
+    attachNotifiers(ws);
+    claimTicket(ws, ws.store.create({ title: "x", status: "ready" }, "human:x").id, "claude:a");
+    const mcp = fakeMcp(() => ({}));
+    expect((await flushOutbox(ws, { openMcp: mcp.open })).failed).toBe(1);
+    expect((ws.store.db.prepare("SELECT last_error FROM outbox").get() as { last_error: string }).last_error).toContain("mailbox.scope");
     ws.close();
   });
 });
@@ -166,15 +213,17 @@ describe("github mirror", () => {
 });
 
 describe("swarm review", () => {
-  const SWARM_OUT = {
+  // swarm_run response shapes recorded from a real synthet-agent-swarm build.
+  const MULTI = {
     ok: true,
-    judges: [
-      { agent: "codex", ok: true, summary: "looks good" },
-      { agent: "claude", ok: true, summary: "approve" },
-      { agent: "antigravity", ok: true, summary: "approve" },
+    dryRun: false,
+    harnesses: [
+      { id: "codex", transport: "cli", ok: true, summary: "looks good" },
+      { id: "claude", transport: "cli", ok: true, summary: "approve" },
+      { id: "agy", transport: "cli", ok: true, summary: "approve" },
     ],
     agreement: {
-      parsedAgents: ["codex", "claude", "antigravity"],
+      parsedAgents: ["codex", "claude", "agy"],
       unparsedAgents: [],
       items: {
         _reply: {
@@ -195,31 +244,55 @@ describe("swarm review", () => {
     return dir;
   }
 
-  it("parses strict-majority votes", () => {
-    const r = parseSwarm(SWARM_OUT, ["AC-1", "AC-2"]);
-    expect(r.verdict).toBe("approve");
-    expect(r.ac["AC-1"].value).toBe("pass");
-    expect(r.ac["AC-2"].value).toBeNull();
-    expect(r.harnesses.map((h) => h.harness)).toEqual(["codex", "claude", "antigravity"]);
+  async function inReview(config: Record<string, unknown>) {
+    const ctx = repo({ swarm: { enabled: true, path: swarmCheckout(), ...config } } as never);
+    const t = ctx.ws.store.create({ title: "Swarm me", status: "ready", acceptance: ["works"] }, "human:x");
+    claimTicket(ctx.ws, t.id, "claude:a");
+    ctx.ws.store.comment(t.id, "handoff", "done", "claude:a");
+    ctx.ws.store.transition(t.id, "submit", "claude:a");
+    return { ...ctx, id: t.id };
+  }
+
+  it("finds the last JSON object in a reply", () => {
+    expect(lastJsonObject('notes {"x": 1}\nmore\n```json\n{"verdict": "approve", "AC-1": "pass"}\n```')).toEqual({ verdict: "approve", "AC-1": "pass" });
+    expect(lastJsonObject("no json here")).toBeNull();
   });
 
-  it("records the verdict as a review comment; auto-approves only when configured and all AC pass", async () => {
+  it("calls swarm_run (mode review) over MCP and records majority votes; auto-approves only with ≥2 judges when configured", async () => {
     for (const auto of [false, true]) {
-      const { ws, dir } = repo({ swarm: { enabled: true, path: swarmCheckout(), autoApproveOnMajority: auto } } as never);
-      const t = ws.store.create({ title: "Swarm me", status: "ready", acceptance: ["works"] }, "human:x");
-      claimTicket(ws, t.id, "claude:a");
-      ws.store.comment(t.id, "handoff", "done", "claude:a");
-      ws.store.transition(t.id, "submit", "claude:a");
-      const { run, calls } = recorder(() => ok(JSON.stringify(SWARM_OUT)));
-      const res = await swarmReview(ws, t.id, { cwd: dir }, run);
-      const argv = calls[0].argv;
-      expect(argv[2]).toBe("swarm");
-      expect(argv[argv.indexOf("--task") + 1]).toContain('"AC-1": "pass" | "fail" | "unknown"');
+      const { ws, dir, id } = await inReview({ autoApproveOnMajority: auto });
+      const mcp = fakeMcp(() => MULTI);
+      const res = await swarmReview(ws, id, { cwd: dir }, mcp.open);
+      expect(mcp.spawns[0].env).toEqual({ WORKSPACE_ROOT: dir });
+      expect(mcp.calls[0].tool).toBe("swarm_run");
+      expect(mcp.calls[0].args).toMatchObject({ mode: "review", dryRun: false });
+      expect(String(mcp.calls[0].args.task)).toContain('"AC-1": "pass" | "fail" | "unknown"');
+      expect(res.parsed).toEqual(["codex", "claude", "agy"]);
       expect(res.approved).toBe(auto);
-      expect(ws.store.get(t.id).status).toBe(auto ? "done" : "review");
-      expect(ws.store.detail(t.id).comments.at(-1)?.body).toContain("Swarm review: **approve**");
+      expect(ws.store.get(id).status).toBe(auto ? "done" : "review");
+      expect(ws.store.detail(id).comments.at(-1)?.body).toContain("Swarm review: **approve**");
       ws.close();
     }
+  });
+
+  it("single harness: reads that judge's reply file, never auto-approves", async () => {
+    const { ws, dir, id } = await inReview({ autoApproveOnMajority: true });
+    mkdirSync(path.join(dir, ".agent-runs", "r1"), { recursive: true });
+    writeFileSync(path.join(dir, ".agent-runs", "r1", "stdout.md"), '# Subagent Result: claude\nLooks right.\n{"verdict": "approve", "AC-1": "pass", "reason": "tested"}\n');
+    const mcp = fakeMcp(() => ({ ok: true, dryRun: false, harnesses: [{ id: "claude", transport: "cli", ok: true, summary: "# Subagent Result: claude", outputFile: ".agent-runs/r1/stdout.md" }] }));
+    const res = await swarmReview(ws, id, { cwd: dir }, mcp.open);
+    expect(res.verdict).toBe("approve");
+    expect(res.ac["AC-1"]).toEqual({ value: "pass", counts: { pass: 1 } });
+    expect(res.approved).toBe(false);
+    expect(ws.store.detail(id).comments.at(-1)?.body).toContain("Single harness");
+    ws.close();
+  });
+
+  it("surfaces swarm preflight errors", async () => {
+    const { ws, dir, id } = await inReview({});
+    const mcp = fakeMcp(() => ({ ok: false, error: { code: "unknown_harness", message: "nope", next_steps: ["swarm_search"] }, harnesses: [] }));
+    await expect(swarmReview(ws, id, { cwd: dir, harnesses: ["nope"] }, mcp.open)).rejects.toThrow(/unknown_harness/);
+    ws.close();
   });
 });
 

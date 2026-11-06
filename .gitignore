@@ -13,3 +13,5 @@ coverage/
 # Claude Code writes engine types beside a loaded mod
 mod/.claude-plugin/types/
 plugin/.claude-plugin/types/
+# synthet-agent-swarm run artifacts
+.agent-runs/

@@ -1,13 +1,14 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { FlowError } from "../core/errors.js";
 import { run as runProc } from "../core/proc.js";
 import { clip, redactSecrets } from "../core/redaction.js";
 import type { Workspace } from "../core/workspace.js";
-import { defaultRunner, type Runner } from "./exec.js";
+import { openStdioMcp, type McpOpener } from "./mcp-client.js";
 
 /**
- * Multi-harness review via synthet-agent-swarm (read-only judges: Codex, Claude Code, Antigravity, …).
+ * Multi-harness review via synthet-agent-swarm's `swarm_run` MCP tool (mode "review"; read-only judges:
+ * Codex, Claude Code, Antigravity, Cursor, Grok — whichever are installed).
  * The swarm reports strict-majority agreement; ties stay disputed. Votes are evidence, not ground truth:
  * by default the result is recorded as a review comment and a human/peer still approves.
  */
@@ -70,64 +71,142 @@ export async function buildReviewTask(ws: Workspace, id: string, cwd: string): P
   return { task, files };
 }
 
-interface SwarmJson {
+interface SwarmRow {
+  id?: string;
+  agent?: string;
   ok?: boolean;
-  /** Legacy `swarm` CLI shape (runJudgeSwarm): one row per judge. */
-  judges?: Array<{ agent?: string; ok?: boolean; summary?: string; error?: string }>;
-  /** `swarm_run` MCP shape. */
-  harnesses?: Array<{ id?: string; ok?: boolean; summary?: string; error?: { message?: string } }>;
-  agreement?: { parsedAgents?: string[]; unparsedAgents?: string[]; items?: Record<string, { fields?: Record<string, { value: string | null; counts: Record<string, number> }> }> };
+  summary?: string;
+  outputFile?: string;
+  error?: { message?: string } | string;
 }
 
-export function parseSwarm(out: SwarmJson, acIds: string[]): Omit<SwarmReview, "approved"> {
-  const item = out.agreement?.items?.["_reply"]?.fields ?? {};
-  const verdictValue = item.verdict?.value;
+interface SwarmJson {
+  ok?: boolean;
+  dryRun?: boolean;
+  /** `swarm_run` rows. */
+  harnesses?: SwarmRow[];
+  /** Legacy `swarm` CLI rows. */
+  judges?: SwarmRow[];
+  agreement?: { parsedAgents?: string[]; unparsedAgents?: string[]; items?: Record<string, { fields?: Record<string, { value: string | null; counts: Record<string, number> }> }> };
+  error?: { code?: string; message?: string; next_steps?: string[] };
+}
+
+/** Last balanced top-level JSON object in a reply (same rule as the swarm's own vote parser). */
+export function lastJsonObject(text: string): Record<string, unknown> | null {
+  for (let end = text.lastIndexOf("}"); end >= 0; end = text.lastIndexOf("}", end - 1)) {
+    let depth = 0;
+    for (let i = end; i >= 0; i--) {
+      if (text[i] === "}") depth++;
+      else if (text[i] === "{") {
+        depth--;
+        if (depth === 0) {
+          try {
+            const v = JSON.parse(text.slice(i, end + 1)) as unknown;
+            if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+          } catch {
+            /* keep scanning */
+          }
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalise a swarm response. Two or more harnesses → the swarm's strict-majority `agreement`.
+ * One harness → no agreement is returned, so that harness's reply (`outputFile`) is read directly.
+ */
+export function parseSwarm(out: SwarmJson, acIds: string[], readReply?: (row: SwarmRow) => string | null): Omit<SwarmReview, "approved"> {
+  const rows = out.harnesses ?? out.judges ?? [];
+  let fields = out.agreement?.items?.["_reply"]?.fields;
+  let parsed = out.agreement?.parsedAgents ?? [];
+  let unparsed = out.agreement?.unparsedAgents ?? [];
+  if (!out.agreement && readReply) {
+    const ok = rows.filter((r) => r.ok !== false);
+    if (ok.length === 1) {
+      const reply = lastJsonObject(readReply(ok[0]) ?? "");
+      const name = String(ok[0].id ?? ok[0].agent ?? "?");
+      if (reply) {
+        fields = Object.fromEntries(Object.entries(reply).filter(([, v]) => typeof v === "string").map(([k, v]) => [k, { value: v as string, counts: { [v as string]: 1 } }]));
+        parsed = [name];
+      } else unparsed = [name];
+    }
+  }
+  const f = fields ?? {};
+  const verdictValue = f.verdict?.value;
   const verdict: SwarmReview["verdict"] = verdictValue === "approve" ? "approve" : verdictValue === "reject" ? "reject" : "disputed";
   const ac: SwarmReview["ac"] = {};
-  for (const id of acIds) ac[id] = { value: item[id]?.value ?? null, counts: item[id]?.counts ?? {} };
-  const rows: Array<Record<string, unknown>> = (out.judges ?? out.harnesses ?? []) as Array<Record<string, unknown>>;
+  for (const id of acIds) ac[id] = { value: f[id]?.value ?? null, counts: f[id]?.counts ?? {} };
   return {
     verdict,
     ac,
-    parsed: out.agreement?.parsedAgents ?? [],
-    unparsed: out.agreement?.unparsedAgents ?? [],
+    parsed,
+    unparsed,
     harnesses: rows.map((r) => ({
-      harness: String(r.agent ?? r.id ?? "?"),
+      harness: String(r.id ?? r.agent ?? "?"),
       ok: r.ok !== false,
-      summary: clip(String(r.summary ?? r.error ?? (r.ok === false ? "failed" : "ok")), 240),
+      summary: clip(String(r.summary ?? (typeof r.error === "string" ? r.error : r.error?.message) ?? (r.ok === false ? "failed" : "ok")), 240),
     })),
   };
 }
 
-export async function swarmReview(ws: Workspace, id: string, opts: { cwd: string; harnesses?: string[]; dryRun?: boolean } , run: Runner = defaultRunner): Promise<SwarmReview> {
+export async function swarmReview(
+  ws: Workspace,
+  id: string,
+  opts: { cwd: string; harnesses?: string[]; dryRun?: boolean },
+  open: McpOpener = openStdioMcp,
+): Promise<SwarmReview & { dry_run?: SwarmJson }> {
   const t = ws.store.get(id);
   if (t.status !== "review" && !opts.dryRun) throw new FlowError("INVALID_TRANSITION", `${id} is ${t.status}; swarm review runs on tickets in review`);
   const { task, files } = await buildReviewTask(ws, id, opts.cwd);
-  const argv = [process.execPath, swarmEntry(ws), "swarm", "--task", task, "--timeout-ms", String(ws.config.swarm.timeoutMs)];
-  if (files.length) argv.push("--files", files.join(","));
   const harnesses = opts.harnesses?.length ? opts.harnesses : ws.config.swarm.harnesses;
-  if (harnesses.length) argv.push("--agents", harnesses.join(","));
-  if (opts.dryRun) argv.push("--dry-run");
-  const r = await run(argv, { cwd: opts.cwd, timeoutMs: ws.config.swarm.timeoutMs + 60_000, env: { ...process.env, WORKSPACE_ROOT: opts.cwd } });
-  let parsed: SwarmJson;
+  const session = await open({
+    name: "synthet-agent-swarm",
+    command: process.execPath,
+    args: [swarmEntry(ws)],
+    env: { WORKSPACE_ROOT: opts.cwd },
+    cwd: opts.cwd,
+    timeoutMs: ws.config.swarm.timeoutMs + 60_000,
+  });
+  let out: SwarmJson;
   try {
-    parsed = JSON.parse(r.stdout) as SwarmJson;
-  } catch {
-    throw new FlowError("EXTERNAL_FAILURE", `swarm did not return JSON (exit ${r.code}): ${(r.stderr || r.stdout).slice(0, 400)}`);
+    out = (await session.call("swarm_run", {
+      task,
+      mode: "review",
+      ...(files.length ? { files } : {}),
+      ...(harnesses.length ? { harnesses } : {}),
+      timeoutMs: ws.config.swarm.timeoutMs,
+      dryRun: !!opts.dryRun,
+    })) as SwarmJson;
+  } finally {
+    await session.close();
+  }
+  if (!out || typeof out !== "object") throw new FlowError("EXTERNAL_FAILURE", "swarm_run returned no JSON");
+  if (out.ok === false && out.error) {
+    throw new FlowError("EXTERNAL_FAILURE", `swarm_run: ${out.error.code ?? "error"}: ${out.error.message ?? ""}`, { nextSteps: out.error.next_steps ?? [] });
   }
   const detail = ws.store.detail(id, { events: 0 });
-  const review = parseSwarm(parsed, detail.acceptance.map((a) => a.ac_id));
-  if (opts.dryRun) return { ...review, approved: false };
+  const readReply = (row: SwarmRow) => {
+    if (!row.outputFile) return null;
+    const file = path.resolve(opts.cwd, row.outputFile);
+    return existsSync(file) ? readFileSync(file, "utf8") : null;
+  };
+  const review = parseSwarm(out, detail.acceptance.map((a) => a.ac_id), readReply);
+  if (opts.dryRun) return { ...review, approved: false, dry_run: out };
   const lines = [
     `Swarm review: **${review.verdict}** (parsed: ${review.parsed.join(", ") || "none"}${review.unparsed.length ? `; unparsed: ${review.unparsed.join(", ")}` : ""})`,
     ...Object.entries(review.ac).map(([k, v]) => `- ${k}: ${v.value ?? "disputed"} ${JSON.stringify(v.counts)}`),
-    "Votes are evidence, not ground truth.",
+    ...review.harnesses.map((h) => `- ${h.harness}: ${h.ok ? "ok" : "failed"} — ${h.summary}`),
+    review.parsed.length === 1 ? "Single harness: no majority; treat as one reviewer's opinion." : "Votes are evidence, not ground truth.",
   ];
   ws.store.comment(id, "review", lines.join("\n"), ACTOR);
   ws.store.record("swarm.reviewed", ACTOR, id, { verdict: review.verdict, parsed: review.parsed.length });
   let approved = false;
   const allPass = detail.acceptance.every((a) => review.ac[a.ac_id]?.value === "pass");
-  if (ws.config.swarm.autoApproveOnMajority && review.verdict === "approve" && allPass) {
+  // Auto-approval needs a real majority (≥2 parsed judges), never a single harness.
+  if (ws.config.swarm.autoApproveOnMajority && review.verdict === "approve" && allPass && review.parsed.length >= 2) {
     for (const a of detail.acceptance) {
       if (a.verdict !== "Verified") ws.store.verifyAcceptance(id, a.ac_id, "Verified", `swarm majority pass ${JSON.stringify(review.ac[a.ac_id].counts)}`, ACTOR);
     }

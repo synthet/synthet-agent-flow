@@ -122,8 +122,8 @@ Each import creates an epic plus tickets, and carries over dependencies, scope p
   - `agent-flow github push` mirrors tickets to issues, puts epics' children in as sub-issues, and keeps the status labels current.
   - `github pr <id>` opens a PR whose body starts with `Refs <id>` and includes an AC checklist.
   - `github reconcile` (also run at session start) and the signed `POST /hooks/github` webhook map PR state back: changes requested → reject, merged → done.
-- **synthet-agent-mailbox**: set `mailbox.enabled` and a `scope`. Claim, review, rejection, block, needs-human, done and lease-expiry events are published with `agent-mail publish`. Optionally they also go to a reviewer peer with `agent-mail send`. Delivery runs through a retrying outbox and never blocks a write.
-- **synthet-agent-swarm**: `agent-flow review <id> --swarm` asks Codex, Claude Code and Antigravity for read-only verdicts, one per criterion. The strict-majority votes are recorded as a review comment. Auto-approval is opt-in.
+- **synthet-agent-mailbox**: set `mailbox.enabled` and a `scope`. Claim, review, rejection, block, needs-human, done and lease-expiry events are published to the mailbox journal through its MCP server (subscribe, then publish, with idempotency keys). Optionally they also go to a reviewer peer with `agent-mail send`. Delivery runs through a retrying outbox and never blocks a write.
+- **synthet-agent-swarm**: `agent-flow review <id> --swarm` calls the swarm's `swarm_run` tool (mode `review`) to ask the installed harnesses (Codex, Claude Code, Antigravity, …) for read-only verdicts, one per criterion. The strict-majority votes are recorded as a review comment. Auto-approval is opt-in.
 
 Details: [docs/integrations.md](docs/integrations.md).
 

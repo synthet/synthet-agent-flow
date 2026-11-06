@@ -45,9 +45,14 @@ agent-flow mailbox test
 
   `mailbox.notifyOn` filters which kinds are sent.
 - Delivery:
-  - The first delivery runs `agent-mail register --session <session> --agent-name agent-flow --harness agent-flow`.
-  - Every notification is sent with `agent-mail publish --session … --audience group --scope … --subject "[flow] <id> <kind>" --text …`.
-  - Review requests also run `agent-mail send <reviewPeer> --text …`. Exit code 2 (queued) counts as success.
+  - Journal notifications go through the mailbox's own MCP server: `agent-mail mcp --no-listen`, one process per outbox flush. It runs `mailbox_register_session`, then `mailbox_subscribe` (scope), then `mailbox_publish`.
+    - Why MCP: the journal only lets **scope members** publish to group/topic audiences, and only the MCP surface exposes `mailbox_subscribe`. The CLI has `register` and `publish` but no `subscribe`.
+    - Each publish carries a content-derived `idempotency_key`, so a retried job comes back `duplicate: true` instead of posting twice.
+  - Review requests also run `agent-mail send <reviewPeer> --text …` over the CLI's encrypted peer path. Exit code 2 (queued) counts as success.
+  - Prerequisite: the machine has a mailbox identity (`agent-mail init --name <pc>`). Without one, the outbox error says so, and jobs retry with backoff.
+  - Verified against a real synthet-agent-mailbox 0.3.0 build:
+    - CLI test message, claim/block notifications and review requests all arrived, the review requests reaching a second, trusted peer's inbox.
+    - Mailbox wart found along the way: `agent-mail identity` output includes `origin` and `agent` keys that `trust --file` rejects. Strip them before trusting.
 - Bodies hold the ticket id, title, actor, reason, unblock condition, branch, project and event seq. Ticket specs are never included, and secrets are redacted.
 - Delivery goes through the outbox, with exponential backoff and at most 10 attempts. The CLI flushes it, bounded to 8 s per command. The MCP server flushes after tool calls, and the dashboard server flushes every 30 s. A broken mailbox never blocks a tracker write.
 
@@ -59,10 +64,12 @@ agent-flow review af-k3x9q --swarm [--agents codex,claude,antigravity] [--dry-ru
 ```
 
 1. agent-flow builds a read-only review task. It contains the spec, the acceptance criteria with the author's claimed evidence, the handoff note and `git diff --stat <default>...<branch>`. The task is redacted and capped at 8000 characters.
-2. It runs `node <swarm>/agent-orchestrator/dist/index.js swarm --task … --files <scope_paths> --agents …`.
+2. It starts the swarm's MCP server (`node <swarm>/agent-orchestrator/dist/index.js`, with `WORKSPACE_ROOT` set to the repo). Then it calls `swarm_run {mode: "review", task, files: <scope_paths>, harnesses?, timeoutMs, dryRun}`. This is the swarm's current API; the legacy `swarm` CLI wrapper is not used.
 3. Each judge must end its reply with a flat JSON object: `{"verdict":"approve|reject","AC-1":"pass|fail|unknown",…,"reason":"…"}`.
-4. The swarm's strict-majority agreement is parsed and recorded as a `review` comment plus a `swarm.reviewed` event. Ties stay "disputed".
-5. With `swarm.autoApproveOnMajority: true`, the ticket is approved as `system:swarm`, but only if the verdict is approve and every criterion has a majority pass. Otherwise a human or peer still decides.
+4. Two or more harnesses: the swarm's strict-majority `agreement` is parsed. With a single installed harness the swarm returns no agreement, so agent-flow reads that judge's `outputFile` (`stdout.md`) and takes its last JSON object. Ties stay "disputed". The result is recorded as a `review` comment plus a `swarm.reviewed` event.
+5. With `swarm.autoApproveOnMajority: true`, the ticket is approved as `system:swarm`, but only with at least **two** parsed judges, an approve verdict, and a majority pass on every criterion. A single harness never auto-approves.
+
+Verified against a real synthet-agent-swarm build with the Claude Code harness. `--dry-run` lists the planned `claude -p` command. A real run reviewed the diff and recorded a per-criterion pass in about 16 s. The swarm writes run artifacts to `.agent-runs/` in the workspace; gitignore it.
 
 ## GitHub
 

@@ -1,11 +1,13 @@
 import { redactSecrets, clip } from "../core/redaction.js";
 import type { FlowEvent } from "../core/types.js";
 import type { Workspace } from "../core/workspace.js";
+import { FlowError } from "../core/errors.js";
 import { binArgv, defaultRunner, type Runner } from "./exec.js";
+import { openStdioMcp, type McpOpener, type McpSession } from "./mcp-client.js";
 
 /**
  * synthet-agent-mailbox notifier. agent-flow owns tickets; the mailbox only carries notifications.
- * Same-host publishing goes through the `agent-mail` CLI (the mailbox daemon has no publish endpoint).
+ * Same-host publishing goes through the mailbox journal's MCP tools (see MailboxSession).
  * Messages carry ids, titles and reasons — never ticket bodies (mailbox bodies are untrusted on the far side,
  * and specs may contain sensitive context).
  */
@@ -63,27 +65,102 @@ export function jobForEvent(ws: Workspace, e: FlowEvent): MailboxJob | null {
   };
 }
 
-async function ensureRegistered(ws: Workspace, run: Runner): Promise<void> {
-  if (ws.store.getKv("mailbox:registered") === ws.config.mailbox.session) return;
-  const m = ws.config.mailbox;
-  const r = await run([...binArgv(process.env.AGENT_MAIL_BIN ?? m.bin), "register", "--session", m.session, "--agent-name", "agent-flow", "--harness", "agent-flow"], {
-    timeoutMs: 15_000,
-  });
-  if (r.code !== 0) throw new Error(`agent-mail register failed (${r.code}): ${(r.stderr || r.stdout).slice(0, 300)}`);
-  ws.store.setKv("mailbox:registered", m.session);
+/** argv to launch the mailbox CLI (`agent-mail`, or `$AGENT_MAIL_BIN`, e.g. `node /path/dist/cli.js`). */
+export function mailboxBin(ws: Workspace): string[] {
+  return binArgv(process.env.AGENT_MAIL_BIN ?? ws.config.mailbox.bin);
 }
 
-export async function deliver(ws: Workspace, job: MailboxJob, run: Runner = defaultRunner): Promise<void> {
-  const m = ws.config.mailbox;
-  const bin = binArgv(process.env.AGENT_MAIL_BIN ?? m.bin);
-  await ensureRegistered(ws, run);
-  const argv = [...bin, "publish", "--session", m.session, "--audience", m.audience, "--subject", job.subject, "--text", job.text];
-  if (m.scope) argv.splice(argv.indexOf("--subject"), 0, "--scope", m.scope);
-  const r = await run(argv, { timeoutMs: 15_000 });
-  if (r.code !== 0) throw new Error(`agent-mail publish failed (${r.code}): ${(r.stderr || r.stdout).slice(0, 300)}`);
-  if (job.peer) {
-    // Direct, encrypted peer message to the reviewer's machine. Exit 2 = queued in the mailbox outbox: fine.
-    const s = await run([...bin, "send", job.peer, "--text", job.text], { timeoutMs: 20_000 });
-    if (s.code !== 0 && s.code !== 2) throw new Error(`agent-mail send failed (${s.code}): ${(s.stderr || s.stdout).slice(0, 300)}`);
+function explain(err: unknown): FlowError {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/identity\.json/.test(msg) || /ENOENT/.test(msg)) {
+    return new FlowError("EXTERNAL_FAILURE", "synthet-agent-mailbox has no identity on this machine", {
+      retryable: false,
+      nextSteps: ["agent-mail init --name <this-pc>", "or set AGENT_MAIL_HOME to an initialised mailbox home"],
+    });
+  }
+  if (/not a member/.test(msg)) {
+    return new FlowError("EXTERNAL_FAILURE", `mailbox refused the publish: ${msg}`, { retryable: true, nextSteps: ["check mailbox.scope in .agent-flow/config.json"] });
+  }
+  return err instanceof FlowError ? err : new FlowError("EXTERNAL_FAILURE", msg, { retryable: true });
+}
+
+/**
+ * A delivery session: one `agent-mail mcp --no-listen` process for a whole outbox flush.
+ * The journal requires scope membership before a group/topic publish, and only the MCP surface
+ * exposes `mailbox_subscribe` (the CLI has `register` and `publish` but no `subscribe`), so the
+ * journal path goes through MCP. Direct peer messages (`send`) stay on the CLI.
+ */
+export class MailboxSession {
+  private session: McpSession | null = null;
+  private ready = false;
+
+  constructor(
+    private readonly ws: Workspace,
+    private readonly open: McpOpener = openStdioMcp,
+    private readonly run: Runner = defaultRunner,
+  ) {}
+
+  private async journal(): Promise<McpSession> {
+    const m = this.ws.config.mailbox;
+    if (!this.session) {
+      const [command, ...args] = mailboxBin(this.ws);
+      this.session = await this.open({
+        name: "synthet-agent-mailbox",
+        command,
+        args: [...args, "mcp", "--no-listen", "--harness", "agent-flow", "--agent-name", "agent-flow"],
+        timeoutMs: 20_000,
+      });
+    }
+    if (!this.ready) {
+      if (!m.scope && m.audience !== "broadcast") {
+        throw new FlowError("INVALID_ARGUMENT", "mailbox.scope is not set", { nextSteps: ['agent-flow config set mailbox.scope \'"team-flow"\''] });
+      }
+      try {
+        await this.session.call("mailbox_register_session", { session_id: m.session, alias: "agent-flow", harness: "agent-flow" });
+        if (m.scope) await this.session.call("mailbox_subscribe", { session_id: m.session, scope_id: m.scope });
+      } catch (err) {
+        throw explain(err);
+      }
+      this.ready = true;
+    }
+    return this.session;
+  }
+
+  async deliver(job: MailboxJob, idempotencyKey?: string): Promise<void> {
+    const m = this.ws.config.mailbox;
+    const journal = await this.journal();
+    try {
+      await journal.call("mailbox_publish", {
+        session_id: m.session,
+        audience: m.audience,
+        ...(m.scope ? { scope_id: m.scope } : {}),
+        subject: job.subject,
+        body: job.text,
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      });
+    } catch (err) {
+      throw explain(err);
+    }
+    if (job.peer) {
+      // Direct, encrypted peer message to the reviewer's machine. Exit 2 = queued in the mailbox outbox: fine.
+      const s = await this.run([...mailboxBin(this.ws), "send", job.peer, "--text", job.text, "--harness", "agent-flow", "--agent-name", "agent-flow"], { timeoutMs: 20_000 });
+      if (s.code !== 0 && s.code !== 2) throw explain(new Error(`agent-mail send failed (${s.code}): ${(s.stderr || s.stdout).slice(0, 300)}`));
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.session?.close().catch(() => undefined);
+    this.session = null;
+    this.ready = false;
+  }
+}
+
+/** One-off delivery (used by `agent-flow mailbox test`). */
+export async function deliver(ws: Workspace, job: MailboxJob, open: McpOpener = openStdioMcp, run: Runner = defaultRunner): Promise<void> {
+  const s = new MailboxSession(ws, open, run);
+  try {
+    await s.deliver(job);
+  } finally {
+    await s.close();
   }
 }
