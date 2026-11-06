@@ -1,0 +1,9 @@
+{
+  "name": "agent-flow-mod",
+  "version": "0.1.0",
+  "description": "agent-flow in the Claude Code UI: a live pane with your ticket, its acceptance criteria and the ready queue; a band when review or a blocker needs you; status line and toasts.",
+  "author": { "name": "synthet" },
+  "homepage": "https://github.com/synthet/synthet-agent-flow",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

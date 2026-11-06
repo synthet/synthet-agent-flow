@@ -1,0 +1,2 @@
+<!-- Drop-in for .claude/skills/backlog-queue/SKILL.md, "Resolve the provider in this order" -->
+0. Use **agent-flow** when `.agent-flow/config.json` exists in the repo root. It replaces the Local Markdown and GitHub Issues flows: `agent-flow ready` → `agent-flow claim` → automatic start on first commit → `agent-flow block` → `Refs <id>` in the PR. To show the queue to people on GitHub, mirror it one way with `agent-flow github push`.
