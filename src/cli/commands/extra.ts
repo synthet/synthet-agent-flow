@@ -75,3 +75,15 @@ register({
     }
   },
 });
+
+register({
+  name: "snapshot",
+  group: "agents",
+  summary: "Compact JSON for UIs: bound ticket (branch/session), ready head, counts, loop state",
+  usage: "snapshot [--session <claude session id>]",
+  options: { session: { type: "string" } },
+  async run(ctx) {
+    const { snapshot } = await import("../../hooks/index.js");
+    ctx.stdout(JSON.stringify(snapshot(ctx.cwd, str(ctx.values.session))));
+  },
+});

@@ -400,3 +400,48 @@ export function statusLine(stdin: string, env: NodeJS.ProcessEnv = process.env):
     ws.close();
   }
 }
+
+
+/** Compact JSON snapshot for UIs (the Claude Code mod, status bars). */
+export function snapshot(cwd: string, sessionId?: string, env: NodeJS.ProcessEnv = process.env): Record<string, unknown> {
+  const root = resolveRoot(cwd);
+  if (!existsSync(flowPaths(root).config)) return { initialized: false };
+  const ws = openWorkspace(cwd);
+  try {
+    ws.store.reap();
+    const actor = hookActor({ session_id: sessionId }, env);
+    const t = boundTicket(ws, cwd, actor);
+    const d = t ? ws.store.detail(t.id, { events: 0 }) : null;
+    const handoff = d ? [...d.comments].reverse().find((c) => c.kind === "handoff") : undefined;
+    return {
+      initialized: true,
+      root,
+      actor,
+      ticket: d
+        ? {
+            id: d.id,
+            title: d.title,
+            status: d.status,
+            owner: d.owner,
+            priority: d.priority,
+            lease_until: d.lease_until,
+            branch: d.branch,
+            blocked_reason: d.blocked_reason,
+            rework_count: d.rework_count,
+            acceptance: d.acceptance.map((a) => ({ ac_id: a.ac_id, text: a.text, verdict: a.verdict })),
+            last_handoff: handoff ? handoff.body.slice(0, 400) : null,
+          }
+        : null,
+      ready: ws.store.ready({ limit: 5 }).map((r) => ({ id: r.id, title: r.title, priority: r.priority, lane: r.lane })),
+      counts: {
+        ready: ws.store.ready({ limit: 1000 }).length,
+        review: ws.store.list({ status: "review" }).length,
+        blocked: ws.store.list({ status: "blocked" }).length,
+        needs_human: ws.store.list({ label: "needs-human" }).length,
+      },
+      loop: readLoop(ws),
+    };
+  } finally {
+    ws.close();
+  }
+}
