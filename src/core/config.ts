@@ -80,6 +80,15 @@ export const configSchema = z.object({
       timeoutMs: z.number().int().min(1000).default(300000),
     })
     .default({}),
+  hooks: z
+    .object({
+      /** Run DoD on Claude Code TaskCompleted (exit 2 blocks completion). Off by default: can be slow. */
+      taskCompletedDod: z.boolean().default(false),
+      /** Nudge once on Stop when leaving an owned ticket without a handoff note. */
+      handoffOnStop: z.boolean().default(true),
+      heartbeatMinutes: z.number().int().min(1).default(5),
+    })
+    .default({}),
   server: z
     .object({
       host: z.string().default("127.0.0.1"),

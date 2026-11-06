@@ -45,3 +45,33 @@ register({
     });
   },
 });
+
+register({
+  name: "hook",
+  group: "agents",
+  summary: "Claude Code hook entry point: hook <session-start|pre-tool|post-tool|stop|stop-failure|task-completed|pre-compact|session-end>",
+  usage: "hook <event>   (reads the hook JSON on stdin)",
+  async run(ctx) {
+    const { runHook } = await import("../../hooks/index.js");
+    const event = ctx.positionals[0] ?? "";
+    const res = await runHook(event, await ctx.readStdin());
+    if (res.stdout) ctx.stdout(res.stdout);
+    if (res.stderr) ctx.stderr(res.stderr);
+    return res.code;
+  },
+});
+
+register({
+  name: "statusline",
+  group: "agents",
+  summary: "One-line status for Claude Code's statusLine (reads its JSON on stdin)",
+  usage: "statusline",
+  async run(ctx) {
+    const { statusLine } = await import("../../hooks/index.js");
+    try {
+      ctx.stdout(statusLine(await ctx.readStdin()));
+    } catch {
+      ctx.stdout("");
+    }
+  },
+});

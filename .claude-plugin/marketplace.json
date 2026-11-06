@@ -1,0 +1,17 @@
+{
+  "name": "synthet-agent-flow",
+  "description": "agent-flow: agent-oriented project management for Claude Code (plugin) plus an optional in-session board mod.",
+  "owner": { "name": "synthet" },
+  "plugins": [
+    {
+      "name": "agent-flow",
+      "source": "./plugin",
+      "description": "Ticket lifecycle skills (next/work/complete/review/plan/loop), context + safety + loop hooks, reviewer/planner agents, and the agent-flow MCP server."
+    },
+    {
+      "name": "agent-flow-mod",
+      "source": "./mod",
+      "description": "Claude Code mod: a live pane with your current ticket, AC checklist and ready queue, a band when review/blocked needs attention, status line and toasts."
+    }
+  ]
+}
