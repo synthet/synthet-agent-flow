@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      - name: Validate plugin manifests
+        run: |
+          node -e "for (const f of ['.claude-plugin/marketplace.json','plugin/.claude-plugin/plugin.json','plugin/.mcp.json','plugin/hooks/hooks.json','mod/.claude-plugin/plugin.json','mod/hooks/hooks.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))"
+      - name: Skill frontmatter (synthet-code-framework fields)
+        run: |
+          for f in plugin/skills/*/SKILL.md; do
+            for k in name description capability side_effect_level approval_required requires_tools output_schema risk_class; do
+              grep -q "^$k:" "$f" || { echo "$f missing $k"; exit 1; }
+            done
+          done
