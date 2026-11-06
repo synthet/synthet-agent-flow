@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+.agent-flow/flow.db
+.agent-flow/flow.db-*
+.agent-flow/serve.json
+.agent-flow/loop.json
+.agent-flow/STOP
+.agent-flow/locks/
+.env
+.DS_Store
