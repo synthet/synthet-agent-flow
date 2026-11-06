@@ -29,7 +29,12 @@ function statusText(s: Snapshot | null): string | undefined {
 let busy = false
 
 async function cliArgv($: EngineInterface): Promise<string[]> {
-  const bin = (await $.env.get('AGENT_FLOW_BIN')) ?? 'agent-flow'
+  const bin = ((await $.env.get('AGENT_FLOW_BIN')) ?? 'agent-flow').trim()
+  // A JSON string array keeps Windows paths with spaces intact: ["node","C:\\x y\\cli.js"].
+  if (bin.startsWith('[')) {
+    const arr: unknown = JSON.parse(bin)
+    if (Array.isArray(arr) && arr.length > 0 && arr.every(x => typeof x === 'string')) return arr as string[]
+  }
   return bin.split(/\s+/).filter(Boolean)
 }
 

@@ -2,28 +2,28 @@
   "description": "agent-flow: ticket context on start/compact, safety + WIP gates, auto-start on first commit, heartbeats, handoff nudges, the capped next-ticket loop and transcript pointers.",
   "hooks": {
     "SessionStart": [
-      { "matcher": "startup|resume|clear|compact", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" session-start", "timeout": 20 }] }
+      { "matcher": "startup|resume|clear|compact", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" session-start", "timeout": 20 }] }
     ],
     "PreToolUse": [
-      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" pre-tool", "timeout": 10 }] }
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" pre-tool", "timeout": 10 }] }
     ],
     "PostToolUse": [
-      { "matcher": "Bash|Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" post-tool", "timeout": 15 }] }
+      { "matcher": "Bash|Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" post-tool", "timeout": 15 }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" stop", "timeout": 20 }] }
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" stop", "timeout": 20 }] }
     ],
     "StopFailure": [
-      { "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" stop-failure", "timeout": 10 }] }
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" stop-failure", "timeout": 10 }] }
     ],
     "TaskCompleted": [
-      { "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" task-completed", "timeout": 900 }] }
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" task-completed", "timeout": 900 }] }
     ],
     "PreCompact": [
-      { "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" pre-compact", "timeout": 10 }] }
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" pre-compact", "timeout": 10 }] }
     ],
     "SessionEnd": [
-      { "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" session-end", "timeout": 5 }] }
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.mjs\" session-end", "timeout": 5 }] }
     ]
   }
 }

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { FlowError } from "../core/errors.js";
+import { binArgv } from "./exec.js";
 
 /**
  * Wire agent-flow into Claude Code / Cursor / Codex and into synthet-code-framework projects.
@@ -41,7 +42,7 @@ function assetRoot(): string {
 function cliCommand(): { command: string; args: string[] } {
   const bin = process.env.AGENT_FLOW_BIN;
   if (bin) {
-    const [command, ...args] = bin.split(/\s+/).filter(Boolean);
+    const [command, ...args] = binArgv(bin);
     return { command, args };
   }
   return { command: "agent-flow", args: [] };

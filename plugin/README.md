@@ -30,7 +30,7 @@ This plugin connects Claude Code to [agent-flow](https://github.com/synthet/synt
 - **MCP**: the `agent-flow` server with `flow_*` tools and `flow://workflow/overview`.
 
 ## Setup
-1. Install the CLI: `npm i -g github:synthet/synthet-agent-flow`, or clone, then `npm i && npm link`. Set `AGENT_FLOW_BIN` to use a specific build.
+1. Install the CLI: `npm i -g github:synthet/synthet-agent-flow`, or clone, then `npm i && npm link`. Set `AGENT_FLOW_BIN` to use a specific build, either as a command (`node /path/bin/agent-flow.js`) or, for paths with spaces, a JSON array (`["node","C:\\agent flow\\bin\\agent-flow.js"]`). Hooks and the MCP server launch through `node` shims, so they work on macOS, Linux and Windows without `sh`. On Windows, npm's `.cmd` shim is resolved to its JS entry.
 2. In your repo, run `agent-flow init --dod "npm test"`.
 3. Add the plugin:
    ```
