@@ -251,7 +251,8 @@ register(
     usage: "board [--epic id] [--label l]",
     options: { epic: { type: "string" }, label: { type: "string" } },
     run(ctx) {
-      const board = ctx.ws().store.board({ epic: str(ctx.values.epic), label: str(ctx.values.label) });
+      const raw = ctx.ws().store.board({ epic: str(ctx.values.epic), label: str(ctx.values.label) });
+      const board = { columns: raw.columns.map((c) => ({ ...c, tickets: c.tickets.filter((t) => t.type !== "epic") })) };
       ctx.print(board, () =>
         board.columns
           .map(

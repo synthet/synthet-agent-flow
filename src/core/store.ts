@@ -621,7 +621,7 @@ export class FlowStore {
   }
 
   private columnCount(status: Status): number {
-    return (this.db.prepare("SELECT COUNT(*) AS n FROM tickets WHERE status = ?").get(status) as { n: number }).n;
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM tickets WHERE status = ? AND type != 'epic'").get(status) as { n: number }).n;
   }
 
   /**

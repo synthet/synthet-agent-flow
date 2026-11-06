@@ -6,14 +6,24 @@
   "license": "MIT",
   "author": "synthet",
   "repository": "https://github.com/synthet/synthet-agent-flow",
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "bin": {
     "agent-flow": "bin/agent-flow.js",
     "af": "bin/agent-flow.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["bin", "dist", "plugin", "templates", "integrations", "README.md"],
+  "files": [
+    "bin",
+    "dist",
+    "assets",
+    "plugin",
+    "templates",
+    "integrations",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

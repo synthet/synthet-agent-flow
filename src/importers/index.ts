@@ -440,7 +440,9 @@ export interface ApplyResult {
 
 /** Create the epic and tickets idempotently (external_key = `<relpath>#<key>`). */
 export function applyPlan(store: FlowStore, plan: ImportPlan, actor: string, opts: ApplyOptions = {}): ApplyResult {
-  const rel = path.relative(opts.root ?? process.cwd(), path.resolve(plan.source)).replace(/\\/g, "/") || plan.source;
+  const relative = path.relative(opts.root ?? process.cwd(), path.resolve(plan.source)).replace(/\\/g, "/");
+  // Inside the repo: a portable relative path. Outside: the absolute path (no ../../.. chains).
+  const rel = relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : path.resolve(plan.source).replace(/\\/g, "/");
   if (opts.dryRun) return { epic: null, created: [], existing: [], warnings: plan.warnings, plan };
   return store.tx(() => {
     let epic: Ticket | null = null;
