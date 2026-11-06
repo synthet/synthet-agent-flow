@@ -11,7 +11,7 @@ This kit lets projects seeded from [synthet-code-framework](https://github.com/s
 
 `agent-flow install --framework <project>` copies the first two files and the CLAUDE.md block. It never overwrites a file, and it writes a receipt so `agent-flow uninstall` can undo the change. Paste the snippets by hand: the framework's `scripts/sync_assistant_trees.py` regenerates the `.cursor/` and `.agents/` mirrors from `.claude/`.
 
-**Upstreaming:** to make agent-flow a built-in provider of the framework, open a PR there that:
+**Upstreaming:** this kit was proposed upstream in [synthet/synthet-code-framework#60](https://github.com/synthet/synthet-code-framework/pull/60). Once it is merged, framework-seeded projects get the provider doc and provider order natively; this kit stays for projects seeded earlier. That PR:
 - adds the provider doc under `.agent/backlog/providers/`,
 - adds the provider to `backlog-queue` and `task-claim`,
 - adds an `agent-flow` entry to `scripts/build_plugin_manifests.py` if the framework's marketplace should list this plugin. The `source` would be a `github` object source pointing at `synthet/synthet-agent-flow`, path `plugin`.
