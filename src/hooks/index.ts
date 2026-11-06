@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { primeContext } from "../core/context.js";
@@ -178,11 +178,31 @@ function preTool(ws: Workspace, input: HookInput, env: NodeJS.ProcessEnv): HookR
   }
   const rm = /\brm\s+-[a-z]*r[a-z]*\s+([^\s;&|]+)/.exec(command);
   if (rm) {
-    const top = worktreeTop(cwd) ?? cwd;
-    const target = path.resolve(cwd, rm[1].replace(/^~(?=\/|$)/, env.HOME ?? "~"));
+    // Compare canonical paths: git reports the worktree top as a realpath (macOS /var → /private/var,
+    // or any symlinked checkout), so the target must be resolved the same way before the prefix check.
+    const top = canonicalPath(worktreeTop(cwd) ?? cwd);
+    const target = canonicalPath(path.resolve(cwd, rm[1].replace(/^~(?=\/|$)/, env.HOME ?? "~")));
     if (!target.startsWith(top + path.sep) && target !== top) return deny(`rm -r outside the worktree (${target})`);
   }
   return SILENT;
+}
+
+/** realpath of the nearest existing ancestor, with the not-yet-existing remainder re-appended. */
+function canonicalPath(p: string): string {
+  const abs = path.resolve(p);
+  let head = abs;
+  const rest: string[] = [];
+  while (!existsSync(head)) {
+    const parent = path.dirname(head);
+    if (parent === head) return abs;
+    rest.unshift(path.basename(head));
+    head = parent;
+  }
+  try {
+    return path.join(realpathSync(head), ...rest);
+  } catch {
+    return abs;
+  }
 }
 
 function postTool(ws: Workspace, input: HookInput, env: NodeJS.ProcessEnv): HookResult {

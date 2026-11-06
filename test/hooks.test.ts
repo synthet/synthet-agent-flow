@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { runHook, statusLine, writeLoop, readLoop } from "../src/hooks/index.js";
 import { initWorkspace, openWorkspace } from "../src/core/workspace.js";
@@ -73,6 +73,16 @@ describe("hooks", () => {
     expect(await run("git push --force-with-lease origin af/af-12345-x")).toEqual({});
     const other = await hook("pre-tool", { cwd: dir, tool_name: "Edit", tool_input: { file_path: "x" } });
     expect(other.stdout).toBe("{}");
+  });
+
+  it("pre-tool resolves symlinks before the rm -r worktree check (macOS /var → /private/var)", async () => {
+    const { dir } = repo();
+    const link = path.join(tempDir("af-link-"), "repo-link");
+    symlinkSync(dir, link);
+    const run = async (command: string) => JSON.parse((await hook("pre-tool", { cwd: link, session_id: SID, tool_name: "Bash", tool_input: { command } })).stdout);
+    expect(await run("rm -rf node_modules")).toEqual({});
+    expect(await run("rm -rf build/out")).toEqual({});
+    expect((await run("rm -rf ../other")).hookSpecificOutput.permissionDecision).toBe("deny");
   });
 
   it("pre-tool enforces WIP before a second claim", async () => {
