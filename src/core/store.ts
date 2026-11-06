@@ -856,6 +856,29 @@ export class FlowStore {
     this.emit("epic.rollup", "system:flow", epic.id, { from: epic.status, to: next, child: childId, by: actor });
   }
 
+  /**
+   * Administrative status override for migrations/imports (human: or system: actors only).
+   * Bypasses the lifecycle table but is still fully audited.
+   */
+  setStatusAdmin(id: string, status: Status, actor: string, reason: string): Ticket {
+    if (actorKind(actor) === "agent") throw new FlowError("UNAUTHORIZED", "only human:/system: actors may set status directly");
+    if (!STATUSES.includes(status)) throw new FlowError("INVALID_ARGUMENT", `bad status ${status}`);
+    return this.tx(() => {
+      const t = this.get(id);
+      const now = this.now();
+      const clearOwner = !ACTIVE.includes(status) && status !== "review" && status !== "blocked";
+      this.db
+        .prepare(
+          `UPDATE tickets SET status = ?, closed_at = ?, owner = CASE WHEN ? THEN NULL ELSE owner END,
+           lease_until = NULL, updated_at = ?, version = version + 1 WHERE id = ?`,
+        )
+        .run(status, CLOSED.includes(status) ? now : null, clearOwner ? 1 : 0, now, id);
+      this.emit("ticket.status_set", actor, id, { from: t.status, to: status, reason });
+      this.recomputeParent(id, actor);
+      return this.get(id);
+    });
+  }
+
   /** Return expired leases to the ready queue. */
   reap(): string[] {
     return this.tx(() => this.reapInTx());
