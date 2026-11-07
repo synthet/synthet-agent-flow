@@ -114,16 +114,17 @@ static class AgentFlowTray
         ui.CreateControl();
         IntPtr handle = ui.Handle;
 
-        var menu = new ContextMenuStrip();
-        var openItem = menu.Items.Add("Open dashboard", null, delegate { OpenDashboard(); });
-        openItem.Font = new Font(openItem.Font, FontStyle.Bold);
-        menu.Items.Add("Quit", null, delegate { Quit(); });
+        // The native Windows menu, as in the mailbox and AI Quotas trays. ContextMenuStrip draws its own,
+        // which does not match Windows 11. The default item is drawn bold.
+        var openItem = new MenuItem("Open dashboard", delegate { OpenDashboard(); });
+        openItem.DefaultItem = true;
+        var menu = new ContextMenu(new[] { openItem, new MenuItem("Quit", delegate { Quit(); }) });
 
         icon = new NotifyIcon
         {
             Icon = new Icon(IconPath(root), SystemInformation.SmallIconSize),
             Text = AppName,
-            ContextMenuStrip = menu,
+            ContextMenu = menu,
         };
         icon.MouseClick += delegate(object sender, MouseEventArgs e)
         {
