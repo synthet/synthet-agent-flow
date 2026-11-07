@@ -199,7 +199,7 @@ function canonicalPath(p: string): string {
     head = parent;
   }
   try {
-    return path.join(realpathSync(head), ...rest);
+    return path.join(realpathSync.native(head), ...rest); // .native: the JS version keeps Windows 8.3 names (RUNNER~1), and git reports long ones
   } catch {
     return abs;
   }

@@ -85,6 +85,15 @@ describe("hooks", () => {
     expect((await run("rm -rf ../other")).hookSpecificOutput.permissionDecision).toBe("deny");
   });
 
+  it.runIf(process.platform === "win32")("pre-tool expands 8.3 short paths before the rm -r worktree check", async () => {
+    const { dir } = repo();
+    const short = execFileSync("cmd", ["/d", "/s", "/c", `"for %I in ("${dir}") do @echo %~sI"`], { encoding: "utf8", windowsVerbatimArguments: true }).trim();
+    expect(short).not.toBe(dir); // this volume must generate 8.3 names, or the test proves nothing
+    const run = async (command: string) => JSON.parse((await hook("pre-tool", { cwd: short, session_id: SID, tool_name: "Bash", tool_input: { command } })).stdout);
+    expect(await run("rm -rf node_modules")).toEqual({});
+    expect((await run("rm -rf ../other")).hookSpecificOutput.permissionDecision).toBe("deny");
+  });
+
   it("init keeps tickets.jsonl LF when git checks it out with autocrlf", () => {
     const { dir, git } = repo();
     const ws = openWorkspace(dir);

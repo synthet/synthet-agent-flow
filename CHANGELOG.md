@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 - Importers parse CRLF markdown. Spec Kit and OpenSpec files with CRLF line endings used to yield no tasks.
 - Plugin hook and MCP shims launch a `.cmd` CLI from a path containing a space. Hooks used to exit 1 with no output instead of failing open.
+- The `rm -r` worktree check handles Windows 8.3 short paths. It used to deny harmless deletes inside the worktree.
 - `agent-flow init` marks `tickets.jsonl` as `eol=lf`, so autocrlf checkouts stay clean. Existing projects keep their current rule.
 
 ## [0.1.0] - 2026-11-06
