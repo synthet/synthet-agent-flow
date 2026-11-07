@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import spawn from "cross-spawn";
 
 export interface RunResult {
   code: number;
@@ -17,7 +18,11 @@ export interface RunOptions {
   maxBytes?: number;
 }
 
-/** Run argv without a shell. Never throws for non-zero exits; `code` is -1 if the binary is missing. */
+/**
+ * Run argv. Never throws for non-zero exits; `code` is -1 if the binary is missing.
+ * cross-spawn finds bare names through PATHEXT and escapes arguments for cmd.exe when the target is a Windows
+ * .cmd, such as an npm-installed CLI, so an argument can never be parsed as a second command.
+ */
 export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
   const started = Date.now();
   const max = opts.maxBytes ?? 1024 * 1024;
@@ -32,15 +37,14 @@ export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
       clearTimeout(timer);
       resolve({ code, stdout, stderr, timedOut, ms: Date.now() - started });
     };
-    let child;
+    let child: ChildProcessWithoutNullStreams;
     try {
       child = spawn(argv[0], argv.slice(1), {
         cwd: opts.cwd,
         env: opts.env ?? process.env,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
-        shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(argv[0]),
-      });
+      }) as ChildProcessWithoutNullStreams; // all three streams are pipes
     } catch (err) {
       stderr = String(err);
       done(-1);
