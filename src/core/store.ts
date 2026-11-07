@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { canonical } from "./canonical.js";
 import { LANES, PRIORITIES, STATUSES, TICKET_TYPES, type FlowConfig, type Status } from "./config.js";
 import { openDatabase } from "./db.js";
 import { FlowError } from "./errors.js";
+import { renameWithRetry } from "./fsutil.js";
 import { newTicketId } from "./ids.js";
 import { RULES, canTransition, type Action } from "./states.js";
 import type {
@@ -131,7 +132,7 @@ export class FlowStore {
     this.pending = [];
     const dirty = this.dirty;
     this.dirty = false;
-    if (dirty && this.config.autoExport && this.snapshotPath) this.writeSnapshot(this.snapshotPath);
+    if (dirty && this.config.autoExport && this.snapshotPath) this.exportAfterCommit(this.snapshotPath);
     for (const event of events) for (const l of this.listeners) safeCall(l, event);
     return result;
   }
@@ -1145,7 +1146,26 @@ export class FlowStore {
     mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.${process.pid}.tmp`;
     writeFileSync(tmp, this.exportSnapshot());
-    renameSync(tmp, file);
+    try {
+      renameWithRetry(tmp, file);
+    } catch (err) {
+      rmSync(tmp, { force: true });
+      throw err;
+    }
+  }
+
+  /**
+   * The snapshot is derived from the database, and the transaction has already committed. Failing here would
+   * tell the caller a change was lost when it was not: a claim would stay leased to an agent that thinks it lost.
+   * The next write, or `agent-flow export`, brings the file up to date.
+   */
+  private exportAfterCommit(file: string): void {
+    try {
+      this.writeSnapshot(file);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`agent-flow: could not update ${path.basename(file)}: ${reason}\n`);
+    }
   }
 
   /**
