@@ -8,6 +8,7 @@ import { FlowError, toFlowError } from "../core/errors.js";
 import { currentBranch } from "../core/paths.js";
 import { applyAction, claimTicket } from "../core/service.js";
 import type { Action } from "../core/states.js";
+import { actorKind } from "../core/store.js";
 import { openWorkspace, resolveActor, type Workspace } from "../core/workspace.js";
 import { applyPlan, buildPlan, type ImportFormat } from "../importers/index.js";
 import { WORKFLOW_OVERVIEW } from "./overview.js";
@@ -66,9 +67,19 @@ export interface FlowMcpOptions {
   workspace?: Workspace;
 }
 
+/**
+ * An MCP client is an agent, so it must not inherit the privileged `human:$USER` fallback. Only an explicit
+ * --actor or AGENT_FLOW_ACTOR can make this server act as a human.
+ */
+function mcpActor(explicit?: string): string {
+  const actor = resolveActor(explicit ?? null);
+  const declared = Boolean(explicit || process.env.AGENT_FLOW_ACTOR);
+  return !declared && actorKind(actor) === "human" ? "agent:mcp" : actor;
+}
+
 export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpServer; workspace: () => Workspace; close: () => void } {
   const cwd = opts.cwd ?? process.cwd();
-  const defaultActor = resolveActor(opts.actor ?? null);
+  const defaultActor = mcpActor(opts.actor);
   let ws: Workspace | null = opts.workspace ?? null;
   const workspace = () => {
     if (!ws) {
@@ -77,7 +88,12 @@ export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpSer
     }
     return ws;
   };
-  const who = (a?: string) => a ?? defaultActor;
+  const who = (a?: string) => {
+    if (a && actorKind(a) !== "agent" && actorKind(defaultActor) === "agent") {
+      throw new FlowError("UNAUTHORIZED", `an agent session cannot act as ${a}`);
+    }
+    return a ?? defaultActor;
+  };
   const server = new McpServer(
     { name: "agent-flow", version: "0.1.0" },
     {

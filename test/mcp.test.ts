@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -11,10 +11,10 @@ import { flowPaths } from "../src/core/paths.js";
 import { initWorkspace } from "../src/core/workspace.js";
 import { tempDir } from "./helpers.js";
 
-async function connect(actor = "claude:mcp-test") {
+async function connect(actor: string | null = "claude:mcp-test") {
   const store = FlowStore.open(":memory:", { config: defaultConfig() });
   const ws = { paths: flowPaths(tempDir()), config: store.config, store, close: () => store.close() };
-  const { server } = createFlowMcpServer({ workspace: ws, actor });
+  const { server } = createFlowMcpServer({ workspace: ws, actor: actor ?? undefined });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "test", version: "1" });
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -24,6 +24,46 @@ async function connect(actor = "claude:mcp-test") {
   };
   return { client, call, store };
 }
+
+describe("mcp actor identity", () => {
+  const noSession = () => {
+    for (const name of ["AGENT_FLOW_ACTOR", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID"]) vi.stubEnv(name, "");
+  };
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("never defaults to a human: an MCP client is an agent", async () => {
+    noSession();
+    const { call } = await connect(null);
+    expect((await call("flow_create", { title: "default actor" })).data.created_by).toBe("agent:mcp");
+  });
+
+  it("still uses a harness session id when one is set", async () => {
+    noSession();
+    vi.stubEnv("CLAUDE_CODE_SESSION_ID", "abcdef123456789");
+    const { call } = await connect(null);
+    expect((await call("flow_create", { title: "session actor" })).data.created_by).toBe("claude:abcdef123456");
+  });
+
+  it("lets an explicit --actor or AGENT_FLOW_ACTOR decide, including a human", async () => {
+    noSession();
+    expect((await (await connect("gemini:mcp")).call("flow_create", { title: "flag" })).data.created_by).toBe("gemini:mcp");
+    vi.stubEnv("AGENT_FLOW_ACTOR", "human:me");
+    expect((await (await connect(null)).call("flow_create", { title: "env" })).data.created_by).toBe("human:me");
+  });
+
+  it.each(["human:me", "system:import"])("rejects %s as a tool argument from an agent session", async (actor) => {
+    const { call, store } = await connect("gemini:mcp");
+    const res = await call("flow_create", { title: "escalate", actor });
+    expect(res.isError).toBe(true);
+    expect(res.data.error.code).toBe("UNAUTHORIZED");
+    expect(store.list({})).toHaveLength(0);
+  });
+
+  it("allows naming another agent, and lets a human session name anyone", async () => {
+    expect((await (await connect("gemini:mcp")).call("flow_create", { title: "peer", actor: "claude:other" })).data.created_by).toBe("claude:other");
+    expect((await (await connect("human:me")).call("flow_create", { title: "human", actor: "system:import" })).data.created_by).toBe("system:import");
+  });
+});
 
 describe("mcp server", () => {
   it("lists every tool with annotations and the overview resource", async () => {
