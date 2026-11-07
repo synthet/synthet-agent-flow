@@ -1,6 +1,6 @@
 ---
 name: flow-next
-description: Pick and claim the next agent-flow ticket, then set up its branch or worktree. Use when the user says "next ticket", "pick up work", "what should I do next", or when the loop asks for the next ticket.
+description: Pick and claim the next agent-flow ticket, then set up its branch or worktree. Use when the user says "next ticket", "pick up work", "what should I do next", or when the loop asks for the next ticket. Only in projects with an `.agent-flow/` folder.
 argument-hint: "[ticket-id] [--label agent-ok] [--epic <id>]"
 capability: "claim next ready ticket"
 side_effect_level: local_write

@@ -1,6 +1,6 @@
 ---
 name: flow-review
-description: Review an agent-flow ticket in the review column against its acceptance criteria and approve or reject it with actionable feedback. Optionally gather a multi-harness verdict with synthet-agent-swarm. Use for "review af-xxxx", "check the review queue", or when acting as reviewer.
+description: Review an agent-flow ticket in the review column against its acceptance criteria and approve or reject it with actionable feedback. Optionally gather a multi-harness verdict with synthet-agent-swarm. Use for "review af-xxxx", "check the review queue", or when acting as reviewer. Only in projects with an `.agent-flow/` folder.
 argument-hint: "[ticket-id] [--swarm]"
 capability: "ticket review gate"
 side_effect_level: local_write

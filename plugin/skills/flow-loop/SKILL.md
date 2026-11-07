@@ -1,6 +1,6 @@
 ---
 name: flow-loop
-description: Start a capped autonomous next-ticket loop over agent-flow tickets labelled agent-ok — claim, implement, verify, submit, repeat — under an explicit run contract with budget and stop conditions. Only when the user explicitly asks to run autonomously.
+description: Start a capped autonomous next-ticket loop over agent-flow tickets labelled agent-ok — claim, implement, verify, submit, repeat — under an explicit run contract with budget and stop conditions. Only when the user explicitly asks to run autonomously. Only in projects with an `.agent-flow/` folder.
 argument-hint: "[--max 3] [--label agent-ok] [--outer]"
 disable-model-invocation: true
 capability: "autonomous ticket loop"
@@ -16,7 +16,7 @@ risk_class: high
 ## 1. Write the run contract first
 This follows the synthet-code-framework `autonomous-run-contract`. State it to the user and get a yes:
 - **Scope:** tickets labelled `--label` (default `agent-ok`). Nothing else.
-- **Budget:** at most `--max` tickets (default 3). The Stop hook also caps continuations.
+- **Budget:** at most `--max` tickets (default 3). If the hooks are installed, the Stop hook also caps continuations.
 - **Stop conditions:**
   - the ready queue is empty,
   - the `.agent-flow/STOP` file exists,
@@ -30,7 +30,7 @@ This follows the synthet-code-framework `autonomous-run-contract`. State it to t
 ```
 agent-flow loop start --max <N> --label agent-ok
 ```
-This writes `.agent-flow/loop.json`. The plugin's Stop hook then keeps the session going while matching ready work remains. It does not re-feed one prompt; it tells you the next concrete step.
+This writes `.agent-flow/loop.json`. If the hooks are installed, the Stop hook then keeps the session going while matching ready work remains. Without the hooks, use `loop run` below. It does not re-feed one prompt; it tells you the next concrete step.
 
 For long runs, prefer fresh contexts per ticket. That is the most robust tier, and it avoids context rot:
 ```
@@ -44,4 +44,4 @@ This starts one headless `claude -p` session per ticket.
 ## 4. Stopping
 - Halt: `touch .agent-flow/STOP`, or `agent-flow loop stop`.
 - Report every ticket touched: id → final state → PR.
-- Claude Code caps consecutive Stop-hook continuations at 8 by default. Raise `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`, or use `loop run`, for longer loops.
+- If the hooks are installed, Claude Code caps consecutive Stop-hook continuations at 8 by default. Raise `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`, or use `loop run`, for longer loops.
