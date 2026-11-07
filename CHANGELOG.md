@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 - Integrations launch Windows `.cmd` CLIs safely through `cross-spawn`: paths with spaces work, bare npm-installed names are found, and arguments are escaped for `cmd.exe`.
 - The MCP server no longer defaults to the privileged `human:<user>` actor, and an agent session cannot pass a `human:` or `system:` actor to a tool. An explicit `--actor` or `AGENT_FLOW_ACTOR` still decides.
+- A failed `tickets.jsonl` write no longer fails an operation that has already committed, and transient Windows rename errors are retried. A claim could be reported as failed while it stayed leased to that agent.
 - Importers parse CRLF markdown. Spec Kit and OpenSpec files with CRLF line endings used to yield no tasks.
 - Plugin hook and MCP shims launch a `.cmd` CLI from a path containing a space. Hooks used to exit 1 with no output instead of failing open.
 - The `rm -r` worktree check handles Windows 8.3 short paths. It used to deny harmless deletes inside the worktree.
