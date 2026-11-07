@@ -18,6 +18,7 @@ export const LANES = ["expedite", "feature", "bug", "maintenance"] as const;
 export const PRIORITIES = ["p0", "p1", "p2", "p3"] as const;
 export const TICKET_TYPES = ["feature", "bug", "chore", "spike", "docs", "epic"] as const;
 
+// `.prefault` parses its value, so a missing section still gets its nested defaults. `.default` would return `{}` as is.
 export const configSchema = z.object({
   version: z.literal(1).default(1),
   /** Ticket id prefix, e.g. `af` → `af-k3x9q`. */
@@ -27,9 +28,9 @@ export const configSchema = z.object({
   wip: z
     .object({
       perAgent: z.number().int().min(1).max(50).default(1),
-      columns: z.record(z.enum(STATUSES), z.number().int().min(1)).default({ in_progress: 4, review: 6 }),
+      columns: z.partialRecord(z.enum(STATUSES), z.number().int().min(1)).prefault({ in_progress: 4, review: 6 }),
     })
-    .default({}),
+    .prefault({}),
   requireReview: z.boolean().default(true),
   requireHandoff: z.boolean().default(true),
   allowSelfApprove: z.boolean().default(false),
@@ -47,7 +48,7 @@ export const configSchema = z.object({
       maxTurns: z.number().int().min(1).default(80),
       harness: z.enum(["claude", "codex"]).default("claude"),
     })
-    .default({}),
+    .prefault({}),
   github: z
     .object({
       enabled: z.boolean().default(false),
@@ -57,7 +58,7 @@ export const configSchema = z.object({
       reconcileMinutes: z.number().int().min(0).default(5),
       webhookSecretEnv: z.string().default("AGENT_FLOW_GITHUB_SECRET"),
     })
-    .default({}),
+    .prefault({}),
   mailbox: z
     .object({
       enabled: z.boolean().default(false),
@@ -70,7 +71,7 @@ export const configSchema = z.object({
         .default(["claimed", "review", "rejected", "blocked", "needs_human", "done", "lease_expired"]),
       reviewPeer: z.string().nullable().default(null),
     })
-    .default({}),
+    .prefault({}),
   swarm: z
     .object({
       enabled: z.boolean().default(false),
@@ -79,7 +80,7 @@ export const configSchema = z.object({
       autoApproveOnMajority: z.boolean().default(false),
       timeoutMs: z.number().int().min(1000).default(300000),
     })
-    .default({}),
+    .prefault({}),
   hooks: z
     .object({
       /** Run DoD on Claude Code TaskCompleted (exit 2 blocks completion). Off by default: can be slow. */
@@ -88,13 +89,13 @@ export const configSchema = z.object({
       handoffOnStop: z.boolean().default(true),
       heartbeatMinutes: z.number().int().min(1).default(5),
     })
-    .default({}),
+    .prefault({}),
   server: z
     .object({
       host: z.string().default("127.0.0.1"),
       port: z.number().int().min(0).max(65535).default(8791),
     })
-    .default({}),
+    .prefault({}),
 });
 
 export type FlowConfig = z.infer<typeof configSchema>;
