@@ -34,6 +34,7 @@ export const TOOL_NAMES = [
   "flow_cancel",
   "flow_reopen",
   "flow_import_tasks",
+  "flow_review_jev",
 ] as const;
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
@@ -423,6 +424,22 @@ export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpSer
       if (a.remove) store.removeDep(a.id, a.depends_on, a.kind, who(a.actor));
       else store.addDep(a.id, a.depends_on, a.kind, who(a.actor));
       return store.get(a.id);
+    }),
+  );
+
+  server.registerTool(
+    "flow_review_jev",
+    {
+      title: "Advisory Jev review",
+      description:
+        "Ask Jev (paid TypeSafe API, via the jev-mcp checkout in jev.path) whether a ticket in review has evidence for each acceptance criterion. " +
+        "Records an advisory review comment; never approves, rejects or verifies. Use dry_run: true to see the request without calling Jev.",
+      inputSchema: { id, dry_run: z.boolean().optional() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    wrap(async (a) => {
+      const { jevReview } = await import("../integrations/jev.js");
+      return jevReview(workspace(), a.id, { cwd, dryRun: !!a.dry_run });
     }),
   );
 

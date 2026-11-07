@@ -81,6 +81,18 @@ export const configSchema = z.object({
       timeoutMs: z.number().int().min(1000).default(300000),
     })
     .prefault({}),
+  /**
+   * Advisory Jev (TypeSafe System One) review through a jev-mcp checkout. Jev only comments: it never
+   * approves, rejects or verifies. `onSubmit` spends one paid call per submit, so it is off by default.
+   */
+  jev: z
+    .object({
+      path: z.string().nullable().default(null),
+      model: z.string().nullable().default(null),
+      onSubmit: z.boolean().default(false),
+      timeoutMs: z.number().int().min(1000).default(120000),
+    })
+    .prefault({}),
   hooks: z
     .object({
       /** Run DoD on Claude Code TaskCompleted (exit 2 blocks completion). Off by default: can be slow. */
