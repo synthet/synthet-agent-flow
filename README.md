@@ -35,7 +35,7 @@ In your project:
 agent-flow init --dod "npm test"          # .agent-flow/{config.json,tickets.jsonl}, .gitattributes
 agent-flow create "Add GET /api/orders with pagination" --ready -p p1 \
   --scope src/routes/orders.ts --ac "returns 20 orders per page" --ac "invalid params return 400"
-agent-flow serve                           # dashboard on http://127.0.0.1:8790
+agent-flow serve                           # dashboard on http://127.0.0.1:8791
 ```
 
 Then wire up your agent harness. Pick one:

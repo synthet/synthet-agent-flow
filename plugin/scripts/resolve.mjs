@@ -17,6 +17,18 @@ export function splitBin(value) {
 }
 
 /**
+ * Split a resolved CLI into spawn()'s command and args. With `shell: true` Node joins them unquoted, so a command
+ * in a path with a space (`C:\Users\First Last\...`) would be cut at the space by cmd.exe.
+ * Quote only when needed: for a quoted bare name found on PATH (npx.cmd), cmd.exe expands %~dp0 to the cwd.
+ * @param {{ argv: string[], shell: boolean }} cli
+ * @returns {{ cmd: string, args: string[] }}
+ */
+export function spawnTarget(cli) {
+  const [cmd, ...args] = cli.argv;
+  return { cmd: cli.shell && /\s/.test(cmd) ? `"${cmd}"` : cmd, args };
+}
+
+/**
  * @param {{ env?: Record<string,string|undefined>, platform?: string, exists?: (p: string) => boolean, nodePath?: string }} [opts]
  * @returns {{ argv: string[], shell: boolean, via: string } | null}
  */

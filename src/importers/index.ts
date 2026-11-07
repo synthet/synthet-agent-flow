@@ -32,6 +32,10 @@ export type ImportFormat = "auto" | "framework" | "speckit" | "openspec" | "loca
 const PATH_RE = /(?:^|[\s`(])((?:\.{0,2}\/)?(?:[\w@.-]+\/)+[\w@.-]+\.[A-Za-z0-9]{1,8}|(?:[\w@.-]+\/){1,}[\w@-]+\/)(?=$|[\s`),;:])/g;
 const AC_LINE_RE = /^\s*(?:[-*]\s*)?(?:\*\*)?(AC-\d+)(?:\*\*)?\s*[:.—–-]\s*(.+?)\s*$/;
 
+/** Markdown may arrive with CRLF (Windows editors, autocrlf). `.` does not match `\r`, so `(.+)$` patterns would silently miss every line. */
+const toLf = (text: string): string => text.replace(/\r\n?/g, "\n");
+const readText = (file: string): string => toLf(readFileSync(file, "utf8"));
+
 export function extractPaths(text: string): string[] {
   const out = new Set<string>();
   for (const m of text.matchAll(PATH_RE)) {
@@ -44,7 +48,7 @@ export function extractPaths(text: string): string[] {
 /** `AC-n: text` lines anywhere in a document. */
 export function extractAcceptance(text: string): Map<string, string> {
   const map = new Map<string, string>();
-  for (const line of text.split("\n")) {
+  for (const line of toLf(text).split("\n")) {
     const m = AC_LINE_RE.exec(line);
     if (m && !map.has(m[1])) map.set(m[1], m[2].replace(/\*\*/g, "").trim());
   }
@@ -68,7 +72,7 @@ export interface MdTable {
 }
 
 export function parseTables(text: string): MdTable[] {
-  const lines = text.split("\n");
+  const lines = toLf(text).split("\n");
   const tables: MdTable[] = [];
   let heading: string | null = null;
   for (let i = 0; i < lines.length; i++) {
@@ -192,7 +196,7 @@ export function parseSpecKit(text: string, source: string): ImportPlan {
   let frontier: string[] = [];
   let group: string[] | null = null;
   let groupDeps: string[] = [];
-  for (const line of text.split("\n")) {
+  for (const line of toLf(text).split("\n")) {
     const h = /^#{2,4}\s+(.*)$/.exec(line);
     if (h) {
       phase = h[1].trim();
@@ -262,7 +266,7 @@ export function parseOpenSpec(changeDirOrTasks: string): ImportPlan {
   const dir = isDir ? changeDirOrTasks : path.dirname(changeDirOrTasks);
   const tasksFile = isDir ? path.join(dir, "tasks.md") : changeDirOrTasks;
   if (!existsSync(tasksFile)) throw new FlowError("INVALID_ARGUMENT", `no tasks.md in ${dir}`);
-  const text = readFileSync(tasksFile, "utf8");
+  const text = readText(tasksFile);
   const name = path.basename(dir);
   const tasks: PlannedTask[] = [];
   let section: string | null = null;
@@ -297,7 +301,7 @@ export function parseOpenSpec(changeDirOrTasks: string): ImportPlan {
     lastInSection = key;
   }
   const proposal = path.join(dir, "proposal.md");
-  const proposalText = existsSync(proposal) ? readFileSync(proposal, "utf8") : "";
+  const proposalText = existsSync(proposal) ? readText(proposal) : "";
   const scenarios = collectScenarios(path.join(dir, "specs"));
   return {
     format: "openspec",
@@ -320,7 +324,7 @@ function collectScenarios(dir: string): string[] {
       const p = path.join(d, entry);
       if (statSync(p).isDirectory()) walk(p);
       else if (entry.endsWith(".md")) {
-        const lines = readFileSync(p, "utf8").split("\n");
+        const lines = readText(p).split("\n");
         for (let i = 0; i < lines.length; i++) {
           const s = /^#{3,5}\s+Scenario:\s*(.+)$/.exec(lines[i]);
           if (!s) continue;

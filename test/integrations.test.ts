@@ -306,7 +306,8 @@ describe("worktrees", () => {
       expect(existsSync(path.join(r.path, ".git"))).toBe(true);
     }
     const list = execFileSync("git", ["worktree", "list"], { cwd: dir }).toString();
-    for (const id of ids) expect(list).toContain(worktreePath(ws, id));
+    // git prints forward slashes on Windows too.
+    for (const id of ids) expect(list).toContain(worktreePath(ws, id).replaceAll("\\", "/"));
     expect((await createWorktree(ws, ids[0], "human:x")).created).toBe(false);
     ws.close();
   });
