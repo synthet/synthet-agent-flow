@@ -22,8 +22,8 @@ register({
   name: "serve",
   aliases: ["dashboard", "ui"],
   group: "servers",
-  summary: "Web Kanban dashboard + REST/SSE API on loopback (default http://127.0.0.1:8790)",
-  usage: "serve [--port 8790] [--host 127.0.0.1] [--open]",
+  summary: "Web Kanban dashboard + REST/SSE API on loopback (default http://127.0.0.1:8791)",
+  usage: "serve [--port 8791] [--host 127.0.0.1] [--open]",
   options: { port: { type: "string", short: "p" }, host: { type: "string" }, open: { type: "boolean" } },
   async run(ctx) {
     const { startServer } = await import("../../server/http.js");

@@ -3,7 +3,7 @@
 // No CLI installed → print {} and exit 0 (fail open). The CLI's own exit code (e.g. 2 from a failing
 // DoD gate) is passed through unchanged.
 import { spawn } from "node:child_process";
-import { resolveCli } from "./resolve.mjs";
+import { resolveCli, spawnTarget } from "./resolve.mjs";
 
 const event = process.argv[2] ?? "";
 const chunks = [];
@@ -20,8 +20,8 @@ process.stdin.on("end", () => {
     process.stdout.write("{}");
     process.exit(0);
   }
-  const [cmd, ...args] = cli.argv;
-  const child = spawn(cmd, [...args, "hook", event], { stdio: ["pipe", "inherit", "inherit"], shell: cli.shell, windowsHide: true });
+  const { cmd, args } = spawnTarget(cli, ["hook", event]);
+  const child = spawn(cmd, args, { stdio: ["pipe", "inherit", "inherit"], shell: cli.shell, windowsHide: true });
   child.on("error", () => {
     process.stdout.write("{}");
     process.exit(0);

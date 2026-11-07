@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
-import { applyPlan, buildPlan, detectFormat, parseLocalMarkdown } from "../src/importers/index.js";
-import { readFileSync } from "node:fs";
-import { makeStore } from "./helpers.js";
+import { applyPlan, buildPlan, detectFormat, parseFrameworkTasks, parseLocalMarkdown, parseOpenSpec, parseSpecKit, parseTables } from "../src/importers/index.js";
+import { cpSync, readFileSync, writeFileSync } from "node:fs";
+import { makeStore, tempDir } from "./helpers.js";
 
 const fx = (p: string) => path.join(__dirname, "fixtures", p);
 const H = "human:dmn";
@@ -86,5 +86,48 @@ describe("local-markdown backlog migration", () => {
     const { store } = makeStore();
     const res = applyPlan(store, plan, "system:import", { noEpic: true, root: fx("") });
     expect(res.created.map((t) => t.status)).toEqual(["ready", "done", "ready"]);
+  });
+});
+
+describe("CRLF input", () => {
+  // Fixtures may be either on disk (autocrlf), so derive both forms explicitly.
+  const lf = (file: string) => readFileSync(fx(file), "utf8").replace(/\r\n/g, "\n");
+  const crlf = (text: string) => text.replace(/\n/g, "\r\n");
+
+  it("Spec Kit parses the same as LF", () => {
+    const text = lf("speckit/tasks.md");
+    expect(parseSpecKit(crlf(text), "tasks.md")).toEqual(parseSpecKit(text, "tasks.md"));
+  });
+
+  it("framework /tasks parses the same as LF", () => {
+    const text = lf("framework/tasks.md");
+    const spec = lf("framework/spec.md");
+    expect(parseFrameworkTasks(crlf(text), "tasks.md", crlf(spec))).toEqual(parseFrameworkTasks(text, "tasks.md", spec));
+  });
+
+  it("local-markdown parses the same as LF", () => {
+    const text = lf("items.md");
+    expect(parseLocalMarkdown(crlf(text), "items.md")).toEqual(parseLocalMarkdown(text, "items.md"));
+  });
+
+  it("table headings survive CRLF", () => {
+    expect(parseTables("# Tasks\r\n\r\n| a |\r\n|---|\r\n| 1 |\r\n")[0].heading).toBe("Tasks");
+  });
+
+  it("an OpenSpec change folder parses the same as LF", () => {
+    const copy = (convert: (s: string) => string) => {
+      const dir = path.join(tempDir(), "add-2fa");
+      cpSync(fx("openspec/changes/add-2fa"), dir, { recursive: true });
+      for (const f of ["proposal.md", "tasks.md", "specs/auth/spec.md"]) {
+        const p = path.join(dir, f);
+        writeFileSync(p, convert(readFileSync(p, "utf8").replace(/\r\n/g, "\n")));
+      }
+      return parseOpenSpec(dir);
+    };
+    const a = copy(crlf);
+    const b = copy((s) => s);
+    expect(a.tasks.length).toBeGreaterThan(0);
+    expect(a.tasks).toEqual(b.tasks);
+    expect(a.epic).toEqual(b.epic);
   });
 });
