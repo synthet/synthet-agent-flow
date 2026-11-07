@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { run, runShell } from "../src/core/proc.js";
 import { tempDir } from "./helpers.js";
@@ -21,6 +21,10 @@ describe("run", () => {
     expect((await run(["af-no-such-binary-xyz"])).code).toBe(-1);
   });
 
+  it("survives a child that exits without reading a large input", async () => {
+    const r = await run([process.execPath, "-e", "process.exit(0)"], { input: "x".repeat(4 * 1024 * 1024) });
+    expect(r.code).toBe(0);
+  });
   it("forwards stdin and the exit code", async () => {
     const r = await run([process.execPath, "-e", `process.stdout.write(require("fs").readFileSync(0,"utf8")); process.exitCode = 3`], { input: "hello" });
     expect(r).toMatchObject({ code: 3, stdout: "hello" });
@@ -35,6 +39,77 @@ describe("runShell", () => {
   });
 });
 
+describe.runIf(WIN)("run with awkward batch paths", () => {
+  /** A .cmd that finds its entry through %~dp0, as npm's shims do, so a wrong path breaks it. */
+  function installIn(dirName: string, name = "tool"): string {
+    const dir = path.join(tempDir(), dirName);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "cli.cjs"), ECHO_ARGS);
+    writeFileSync(path.join(dir, `${name}.cmd`), `@"${process.execPath}" "%~dp0cli.cjs" %*\r\n@exit /b %errorlevel%\r\n`);
+    return dir;
+  }
+
+  it.each([["with space"], ["a&b"], ["a(b)"], ["a,b"], ["a;b"], ["a=b"], ["100%"], ["a^b"], ["a b&c (d)"]])("runs a .cmd from %j and %~dp0 still works", async (dirName) => {
+    const r = await run([path.join(installIn(dirName), "tool.cmd"), "ok", "two words"]);
+    expect(r.stderr).toBe("");
+    expect(JSON.parse(r.stdout)).toEqual(["ok", "two words"]);
+  });
+
+  it("does not expand a variable in the batch file's own path", async () => {
+    const dir = installIn("%AF_PROBE%");
+    const cwd = tempDir();
+    const r = await run([path.join(dir, "tool.cmd"), "ok"], { cwd, env: { ...process.env, AF_PROBE: 'x" & echo INJECTED> marker.txt & "' } });
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+  it("prefers the .cmd over npm's extensionless shim for a dotted name", async () => {
+    const dir = installIn("bin", "my.tool");
+    writeFileSync(path.join(dir, "my.tool"), "#!/bin/sh\n");
+    const r = await run(["my.tool", "ok"], { env: { ...process.env, PATH: dir } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("ignores a directory with the command's name", async () => {
+    const dir = installIn("bin");
+    mkdirSync(path.join(dir, "shadow"));
+    mkdirSync(path.join(dir, "shadow", "tool.cmd"));
+    const r = await run(["tool", "ok"], { env: { ...process.env, PATH: `${path.join(dir, "shadow")};${dir}` } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("resolves a relative command against cwd", async () => {
+    const dir = installIn("sub");
+    const r = await run([".\\sub\\tool", "ok"], { cwd: path.dirname(dir) });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("accepts quoted PATH entries and any PATH casing", async () => {
+    const dir = installIn("with space");
+    const { PATH: _a, Path: _b, ...rest } = process.env;
+    const r = await run(["tool", "ok"], { env: { ...rest, path: `"${dir}"` } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("falls back to the system shell when ComSpec is empty", async () => {
+    const r = await run([path.join(installIn("bin"), "tool.cmd"), "ok"], { env: { ...process.env, ComSpec: "", COMSPEC: "" } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+});
+describe.runIf(WIN)("runShell on Windows", () => {
+  it("runs a quoted executable path", async () => {
+    const r = await runShell(`"${process.execPath}" -e "process.stdout.write('quoted-ok')"`);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe("quoted-ok");
+  });
+
+  it("keeps quotes and operators working", async () => {
+    const r = await runShell('echo "a"&& echo "b"');
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('"a"');
+    expect(r.stdout).toContain('"b"');
+    expect(r.stdout).not.toContain("\\");
+  });
+});
 describe.runIf(WIN)("run with a .cmd CLI", () => {
   /** A .cmd that forwards its arguments the way npm's shims do, in a folder with a space. */
   function installCmd(name: string): { bin: string; cmd: string } {
@@ -66,6 +141,61 @@ describe.runIf(WIN)("run with a .cmd CLI", () => {
     expect(JSON.parse(r.stdout)).toEqual([arg]);
   });
 
+  it.each([
+    ['foo" & echo INJECTED> marker.txt'],
+    ['a"&echo INJECTED>marker.txt&"'],
+    ['x" | echo INJECTED> marker.txt'],
+    ['say "hi" & echo INJECTED> marker.txt'],
+    ["ends with a backslash\\"],
+    ["!PATH!"],
+    [""],
+  ])("delivers %j unchanged and runs nothing else", async (arg) => {
+    const cwd = tempDir();
+    const r = await run([installCmd("af-tool").cmd, arg], { cwd });
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual([arg]);
+  });
+
+  it.each([['two\\"quote'], ['a\\\\"b"c'], ['"&echo INJECTED>marker.txt&""a"'], ["trailing\\\\"], ['\\\\"&echo INJECTED>marker.txt&"  ']])("keeps backslashes before a quote: %j", async (arg) => {
+    const cwd = tempDir();
+    const r = await run([installCmd("af-tool").cmd, arg, "next"], { cwd });
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+    expect(JSON.parse(r.stdout)).toEqual([arg, "next"]);
+  });
+
+  it.each([["line one\nline two"], ["a\r\nb"], ["\n&echo INJECTED>marker.txt\n"]])("refuses %j rather than cut it short, because cmd.exe cannot carry a newline", async (arg) => {
+    const cwd = tempDir();
+    const r = await run([installCmd("af-tool").cmd, arg], { cwd });
+    expect(r.code).toBe(-1);
+    expect(r.stderr).toContain("newline");
+    expect(r.stdout).toBe("");
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+  });
+
+  it("survives seeded random arguments built from cmd.exe metacharacters", async () => {
+    const atoms = ['"', "\\", "\\\\", "&", "|", "<", ">", "^", "%", "!", "(", ")", ";", ",", " ", "  ", "`", "*", "?", "%PATH%", "%~dp0", "%*", "a", "é", '" & echo PWN>pwn.txt & "', '"&echo PWN>pwn.txt&"', "^&", '\\"'];
+    let seed = 20261107;
+    const next = (n: number) => (seed = (seed * 1664525 + 1013904223) % 4294967296) % n;
+    const { cmd } = installCmd("af-tool");
+    const cwd = tempDir();
+    for (let i = 0; i < 60; i++) {
+      const args = Array.from({ length: 1 + next(3) }, () => Array.from({ length: 1 + next(7) }, () => atoms[next(atoms.length)]).join(""));
+      const r = await run([cmd, ...args], { cwd });
+      expect(JSON.parse(r.stdout), JSON.stringify(args)).toEqual(args);
+      expect(readdirSync(cwd), JSON.stringify(args)).toEqual([]);
+    }
+  }, 60000);
+  it("treats a .bat the same way", async () => {
+    const { bin, cmd } = installCmd("af-tool");
+    const bat = path.join(bin, "af-tool.bat");
+    copyFileSync(cmd, bat);
+    const cwd = tempDir();
+    const arg = 'foo" & echo INJECTED> marker.txt';
+    const r = await run([bat, arg], { cwd });
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+    expect(JSON.parse(r.stdout)).toEqual([arg]);
+  });
   it("does not let an argument run a second command", async () => {
     const marker = path.join(tempDir(), "injected.txt");
     await run([installCmd("af-tool").cmd, `x" & echo pwned> "${marker}" & "`]);

@@ -89,6 +89,14 @@ describe("local-markdown backlog migration", () => {
   });
 });
 
+describe("importing as an agent", () => {
+  it("imports checked tasks as done, recording a system actor for the status", () => {
+    const { store } = makeStore();
+    const plan = parseSpecKit("## Phase 1\n- [x] T001 Done task\n- [ ] T002 Open task\n", "tasks.md");
+    const res = applyPlan(store, plan, "agent:mcp", { noEpic: true, root: fx("") });
+    expect(res.created.map((t) => t.status)).toEqual(["done", "ready"]);
+  });
+});
 describe("CRLF input", () => {
   // Fixtures may be either on disk (autocrlf), so derive both forms explicitly.
   const lf = (file: string) => readFileSync(fx(file), "utf8").replace(/\r\n/g, "\n");

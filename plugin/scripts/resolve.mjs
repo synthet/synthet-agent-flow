@@ -16,11 +16,33 @@ export function splitBin(value) {
   return v.split(/\s+/).filter(Boolean);
 }
 
+// Same escaping as src/core/windows.ts, which this dependency-free script cannot import.
+const META = /([()\][%!^"`<>&|;, *?])/g;
+const caret = (s) => s.replace(META, "^$1");
+const quoteForArgv = (arg) => {
+  let out = '"';
+  let slashes = 0;
+  for (const ch of arg) {
+    if (ch === "\\") {
+      slashes++;
+      continue;
+    }
+    out += ch === '"' ? `${"\\".repeat(slashes * 2 + 1)}"` : `${"\\".repeat(slashes)}${ch}`;
+    slashes = 0;
+  }
+  return `${out}${"\\".repeat(slashes * 2)}"`;
+};
+const escapeArgument = (arg) => {
+  if (/[\r\n]/.test(arg)) throw new Error("an argument with a newline cannot be passed through a .cmd file");
+  return caret(caret(quoteForArgv(arg)));
+};
+
 /**
- * Build spawn()'s command and args for a resolved CLI. With `shell: true` Node joins them unquoted, so anything
- * with a space (`C:\Users\First Last\...`) would be cut by cmd.exe, and Node 24 deprecates that form (DEP0190).
- * So the shell form is one command string. Quote only when needed: for a quoted bare name found on PATH (npx.cmd),
- * cmd.exe expands %~dp0 to the cwd.
+ * Build spawn()'s command and args for a resolved CLI. With `shell: true` Node joins them unescaped, and Node 24
+ * deprecates that form (DEP0190). So the shell form is one command string, escaped for cmd.exe. Arguments are escaped
+ * twice, because a .cmd parses them again when it expands %*. A path is quoted unless it has a %, which still expands
+ * inside quotes, so that takes carets. A bare name is never quoted: for a quoted name
+ * found on PATH (npx.cmd), cmd.exe expands %~dp0 to the cwd.
  * @param {{ argv: string[], shell: boolean }} cli
  * @param {string[]} [extra] arguments to add after the resolved argv
  * @returns {{ cmd: string, args: string[] }}
@@ -28,8 +50,8 @@ export function splitBin(value) {
 export function spawnTarget(cli, extra = []) {
   const [cmd, ...args] = [...cli.argv, ...extra];
   if (!cli.shell) return { cmd, args };
-  const quote = (s) => (/\s/.test(s) ? `"${s}"` : s);
-  return { cmd: [cmd, ...args].map(quote).join(" "), args: [] };
+  const command = /[\\/]/.test(cmd) && !cmd.includes("%") ? `"${cmd}"` : caret(cmd);
+  return { cmd: [command, ...args.map(escapeArgument)].join(" "), args: [] };
 }
 
 /**
