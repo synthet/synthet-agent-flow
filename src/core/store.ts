@@ -81,6 +81,7 @@ export class FlowStore {
   private pending: FlowEvent[] = [];
   private depth = 0;
   private dirty = false;
+  private exportPending = false;
 
   constructor(db: DatabaseSync, opts: StoreOptions) {
     this.db = db;
@@ -132,7 +133,7 @@ export class FlowStore {
     this.pending = [];
     const dirty = this.dirty;
     this.dirty = false;
-    if (dirty && this.config.autoExport && this.snapshotPath) this.exportAfterCommit(this.snapshotPath);
+    if ((dirty || this.exportPending) && this.config.autoExport && this.snapshotPath) this.exportAfterCommit(this.snapshotPath);
     for (const event of events) for (const l of this.listeners) safeCall(l, event);
     return result;
   }
@@ -1162,8 +1163,10 @@ export class FlowStore {
   private exportAfterCommit(file: string): void {
     try {
       this.writeSnapshot(file);
+      this.exportPending = false;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      this.exportPending = true; // separate from dirty, which a rollback clears
       process.stderr.write(`agent-flow: could not update ${path.basename(file)}: ${reason}\n`);
     }
   }

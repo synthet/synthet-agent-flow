@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { initWorkspace, openWorkspace } from "../src/core/workspace.js";
 import { tempDir } from "./helpers.js";
@@ -71,17 +71,23 @@ describe("plugin CLI resolver", () => {
     expect(resolveCli({ env: { PATH: "/nope" }, platform: "linux", exists: () => false })).toBeNull();
   });
 
-  it("quotes the command when a shell will parse it, because Node does not", () => {
-    expect(spawnTarget({ argv: ["C:\\a b\\agent-flow.cmd"], shell: true }, ["hook", "a b"])).toEqual({ cmd: '"C:\\a b\\agent-flow.cmd" hook "a b"', args: [] });
+  it("leaves non-shell launches alone", () => {
     expect(spawnTarget({ argv: ["/a b/agent-flow", "x"], shell: false }, ["y z"])).toEqual({ cmd: "/a b/agent-flow", args: ["x", "y z"] });
   });
 
-  it("passes no args array with a shell, which Node 24 deprecates (DEP0190)", () => {
-    expect(spawnTarget({ argv: ["D:\\tools\\agent-flow.cmd"], shell: true }, ["mcp"]).args).toEqual([]);
+  it("builds one escaped command string for a shell, which Node 24 requires (DEP0190)", () => {
+    const { cmd, args } = spawnTarget({ argv: ["C:\\a b\\agent-flow.cmd"], shell: true }, ['x" & y']);
+    expect(args).toEqual([]);
+    expect(cmd.startsWith('"C:\\a b\\agent-flow.cmd" ')).toBe(true);
+    expect(cmd).not.toMatch(/[^^]&/);
   });
 
-  it("leaves a bare .cmd name unquoted: cmd.exe resolves %~dp0 to the cwd for a quoted name found on PATH", () => {
-    expect(spawnTarget({ argv: ["npx.cmd", "--yes"], shell: true }).cmd).toBe("npx.cmd --yes");
+  it("refuses a newline on the shell path, because cmd.exe cannot carry one", () => {
+    expect(() => spawnTarget({ argv: ["x.cmd"], shell: true }, ["a\nb"])).toThrow(/newline/);
+    expect(spawnTarget({ argv: ["x"], shell: false }, ["a\nb"]).args).toEqual(["a\nb"]);
+  });
+  it("does not quote a bare .cmd name: cmd.exe resolves %~dp0 to the cwd for a quoted name found on PATH", () => {
+    expect(spawnTarget({ argv: ["npx.cmd"], shell: true }).cmd).toBe("npx.cmd");
   });
 });
 
@@ -148,6 +154,19 @@ describe.runIf(WIN)("a .cmd CLI in a path with a space", () => {
     expect(r.stderr).toContain("DoD failing");
   });
 
+  it.each([['a b" & echo INJECTED> marker.txt'], ["Fix&echo.>marker.txt"], ["100%PATH%"]])("af.mjs delivers %j unchanged and runs nothing else", (arg) => {
+    const log = path.join(tempDir(), "log.txt");
+    const cwd = tempDir();
+    const r = spawnSync(process.execPath, [AF, arg], { cwd, input: "", env: { ...baseEnv(), PATH: installCmd(recordingCli(log)) }, encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+    expect(readFileSync(log, "utf8")).toBe(`${arg}\n`);
+  });
+  it("hook.mjs fails open when an argument cannot be passed", () => {
+    const r = runScript(HOOK, ["bad\nevent"], { PATH: installCmd(failingCli) }, "{}");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("{}");
+  });
   it("af.mjs runs it", () => {
     const log = path.join(tempDir(), "log.txt");
     const r = runScript(AF, ["mcp"], { PATH: installCmd(recordingCli(log)) }, "");
