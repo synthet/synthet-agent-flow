@@ -51,6 +51,14 @@ Then wire up your agent harness. Pick one:
 
 Every install backs up the files it touches and writes a sha256 receipt. `agent-flow uninstall` restores only the files that are unchanged since the install.
 
+### Windows tray app
+
+On Windows, `run.cmd` installs what is missing, builds, restarts the tray app and exits. The app has no console or main window. It runs `agent-flow serve` for this checkout on http://127.0.0.1:8791, unless a dashboard already answers there. In that case it uses that dashboard, and **Quit** stops only the tray.
+
+Click the tray icon to open the dashboard. Right-click it and choose **Quit** to stop. Starting the app while it runs opens the dashboard. Logs are in `%LOCALAPPDATA%\Agent Flow\agent-flow-tray.log`.
+
+`scripts\install-shortcut.ps1` points the **Agent Flow** desktop shortcut at the tray app. Add `-Startup` to also start it at logon. The app is built from `tray\AgentFlowTray.cs` by the `csc.exe` that ships with .NET Framework 4, so nothing else is installed.
+
 ## The loop
 
 ```text
