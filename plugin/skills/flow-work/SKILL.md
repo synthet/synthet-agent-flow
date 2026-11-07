@@ -1,6 +1,6 @@
 ---
 name: flow-work
-description: Implement the claimed agent-flow ticket test-first against its acceptance criteria, recording evidence and filing discovered work. Use after flow-next, or when resuming a ticket you hold.
+description: Implement the claimed agent-flow ticket test-first against its acceptance criteria, recording evidence and filing discovered work. Use after flow-next, or when resuming a ticket you hold. Only in projects with an `.agent-flow/` folder.
 argument-hint: "[ticket-id]"
 capability: "implement claimed ticket"
 side_effect_level: local_write
@@ -20,8 +20,8 @@ Ticket: `$ARGUMENTS`. If no id is given, use the ticket bound to the current bra
 2. **Plan small.** Use your own task list for steps inside this ticket only. One ticket is meant to fit one context window and one PR.
 3. **Write tests first** for each acceptance criterion where that is feasible. Then make the smallest change that turns them green.
 4. **Commit early.** Use Conventional Commits, for example `feat(orders): add pagination`.
-   - The first commit moves the ticket to `in_progress` automatically.
-   - Hooks send heartbeats while you work.
+   - Run `agent-flow start <id>` after the first commit.
+   - Run `agent-flow heartbeat <id>` before the lease ends. If the hooks are installed, this and `start` are automatic.
 5. **Record evidence as you go.** For each criterion:
    `agent-flow ac verify <id> AC-n --evidence "<command + result, or file:line>"`.
    Use `--verdict Failed` with the reason if one cannot be met.

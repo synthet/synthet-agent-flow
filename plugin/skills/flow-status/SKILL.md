@@ -1,6 +1,6 @@
 ---
 name: flow-status
-description: Summarise the agent-flow board — what is in flight, blocked, waiting for review, ready next, and what needs a human. Use for "status", "where are we", "what's blocked", "standup".
+description: Summarise the agent-flow board — what is in flight, blocked, waiting for review, ready next, and what needs a human. Use for "status", "where are we", "what's blocked", "standup". Only in projects with an `.agent-flow/` folder.
 capability: "board status report"
 side_effect_level: read_only
 approval_required: false

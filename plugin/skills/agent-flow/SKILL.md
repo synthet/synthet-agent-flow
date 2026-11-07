@@ -1,6 +1,6 @@
 ---
 name: agent-flow
-description: Core rules for working from the agent-flow tracker. Use whenever the user mentions tickets, backlog, queue, "what's next", claiming work, blockers, handoffs, review, or epics, or when you find work outside your current ticket. agent-flow is the project's backlog provider and the only place work is tracked.
+description: Core rules for projects tracked by agent-flow, meaning the repo root has an `.agent-flow/` folder. Use there whenever the user mentions tickets, backlog, queue, "what's next", claiming work, blockers, handoffs, review, or epics, or when you find work outside your current ticket. In those projects agent-flow is the only place work is tracked. Without that folder, do not use this skill.
 capability: "agent-flow ticket workflow rules"
 side_effect_level: local_write
 approval_required: false
@@ -16,7 +16,7 @@ You can drive it two ways, and they behave the same:
 - the MCP tools `flow_*`. Read `flow://workflow/overview` once if it isn't in context.
 - the CLI `agent-flow` (alias `af`). Add `--json` for machine-readable output.
 
-Your actor id was injected at session start, e.g. `claude:1a2b3c4d`. The CLI reads it from `AGENT_FLOW_ACTOR`. Pass it as `actor` on MCP write calls.
+Your actor id looks like `claude:1a2b3c4d`. If the hooks are installed they inject it at session start and the CLI reads it from `AGENT_FLOW_ACTOR`. Without the hooks, pass `--actor <harness>:<short-id>` to every CLI call, because the CLI otherwise acts as `human:<user>`. The MCP server sets its own actor, and it refuses `human:` and `system:` actors from an agent.
 
 ## Rules
 1. **The tracker is the source of truth.** Never keep work in TODO.md files, checklists in chat, or code comments.
@@ -36,9 +36,9 @@ Your actor id was injected at session start, e.g. `claude:1a2b3c4d`. The CLI rea
    `agent-flow ac verify <id> AC-n --evidence "<test output / command / file:line>"`.
    - `Unknown` never counts as a pass.
 8. **Handoff before you stop.** `agent-flow note <id> --handoff "<what changed · decisions and why · what's left · gotchas>"`.
-   - The Stop hook will remind you if you forget.
+   - If the hooks are installed, the Stop hook reminds you.
 9. **Never self-approve.** `submit` moves the ticket to review. A reviewer approves:
-   - the `flow-reviewer` subagent,
+   - the `flow-reviewer` subagent, when the plugin is installed,
    - `agent-flow review --swarm`,
    - or a human on the dashboard (`agent-flow serve`).
 10. **PRs reference the ticket.** Put `Refs <id>` in the PR body, plus `Closes #<n>` if the ticket is mirrored to a GitHub issue.
@@ -50,8 +50,8 @@ Your actor id was injected at session start, e.g. `claude:1a2b3c4d`. The CLI rea
 |---|---|
 | What's next? | `agent-flow ready` · `agent-flow prime` |
 | Take it | `agent-flow claim --next [--label agent-ok]` |
-| First commit | automatic `start` via hook (or `agent-flow start <id>`) |
-| Still working | the hook sends heartbeats; long gaps → `agent-flow heartbeat <id>` |
+| First commit | `agent-flow start <id>` (automatic if the hooks are installed) |
+| Still working | `agent-flow heartbeat <id>` before the lease ends, or claim with `--lease <minutes>` (automatic if the hooks are installed) |
 | Stuck | `agent-flow block <id> --reason … --until …` |
 | Done | the `flow-complete` skill |
 | Give it back | `agent-flow release <id> --reason "<why it failed>"` |

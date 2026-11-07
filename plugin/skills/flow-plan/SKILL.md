@@ -1,6 +1,6 @@
 ---
 name: flow-plan
-description: Turn a feature request or spec into agent-ready agent-flow tickets — scale the ceremony to the size (bug/chore → one ticket; feature → spec + tasks; cross-cutting → full SDD), then import tasks as an epic with dependencies. Use for "plan this feature", "break this down", "create tickets for", or after /spec /plan /tasks.
+description: Turn a feature request or spec into agent-ready agent-flow tickets — scale the ceremony to the size (bug/chore → one ticket; feature → spec + tasks; cross-cutting → full SDD), then import tasks as an epic with dependencies. Use for "plan this feature", "break this down", "create tickets for", or after /spec /plan /tasks. Only in projects with an `.agent-flow/` folder.
 argument-hint: "<feature description | spec file | tasks.md | openspec change dir>"
 capability: "spec to tickets"
 side_effect_level: local_write
