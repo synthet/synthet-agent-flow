@@ -48,7 +48,7 @@ const inputSchema = z
     reason: z.string().max(200).optional(),
     trigger: z.string().max(50).optional(),
     tool_name: z.string().max(200).optional(),
-    tool_input: z.record(z.unknown()).optional(),
+    tool_input: z.record(z.string(), z.unknown()).optional(),
     tool_response: z.unknown().optional(),
     stop_hook_active: z.boolean().optional(),
     error: z.unknown().optional(),
