@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - The dashboard default port is now 8791, because 8790 clashes with AI Quotas. Projects with `server.port` set in their config keep it.
 
 ### Fixed
+- Integrations launch Windows `.cmd` CLIs safely through `cross-spawn`: paths with spaces work, bare npm-installed names are found, and arguments are escaped for `cmd.exe`.
 - Importers parse CRLF markdown. Spec Kit and OpenSpec files with CRLF line endings used to yield no tasks.
 - Plugin hook and MCP shims launch a `.cmd` CLI from a path containing a space. Hooks used to exit 1 with no output instead of failing open.
 - The `rm -r` worktree check handles Windows 8.3 short paths. It used to deny harmless deletes inside the worktree.
