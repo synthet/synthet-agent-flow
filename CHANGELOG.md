@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - CI runs on `windows-latest`.
 
 ### Changed
+- Upgraded zod to 4 and vitest to 5, which clears `npm audit`.
 - The dashboard default port is now 8791, because 8790 clashes with AI Quotas. Projects with `server.port` set in their config keep it.
 
 ### Fixed
