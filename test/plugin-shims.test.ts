@@ -72,12 +72,16 @@ describe("plugin CLI resolver", () => {
   });
 
   it("quotes the command when a shell will parse it, because Node does not", () => {
-    expect(spawnTarget({ argv: ["C:\\a b\\agent-flow.cmd", "x"], shell: true })).toEqual({ cmd: '"C:\\a b\\agent-flow.cmd"', args: ["x"] });
-    expect(spawnTarget({ argv: ["/a b/agent-flow", "x"], shell: false })).toEqual({ cmd: "/a b/agent-flow", args: ["x"] });
+    expect(spawnTarget({ argv: ["C:\\a b\\agent-flow.cmd"], shell: true }, ["hook", "a b"])).toEqual({ cmd: '"C:\\a b\\agent-flow.cmd" hook "a b"', args: [] });
+    expect(spawnTarget({ argv: ["/a b/agent-flow", "x"], shell: false }, ["y z"])).toEqual({ cmd: "/a b/agent-flow", args: ["x", "y z"] });
+  });
+
+  it("passes no args array with a shell, which Node 24 deprecates (DEP0190)", () => {
+    expect(spawnTarget({ argv: ["D:\\tools\\agent-flow.cmd"], shell: true }, ["mcp"]).args).toEqual([]);
   });
 
   it("leaves a bare .cmd name unquoted: cmd.exe resolves %~dp0 to the cwd for a quoted name found on PATH", () => {
-    expect(spawnTarget({ argv: ["npx.cmd", "--yes"], shell: true })).toEqual({ cmd: "npx.cmd", args: ["--yes"] });
+    expect(spawnTarget({ argv: ["npx.cmd", "--yes"], shell: true }).cmd).toBe("npx.cmd --yes");
   });
 });
 

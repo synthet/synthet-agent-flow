@@ -9,8 +9,8 @@ const cli = resolveCli() ?? {
   shell: process.platform === "win32",
   via: "npx",
 };
-const { cmd, args } = spawnTarget(cli);
-const child = spawn(cmd, [...args, ...process.argv.slice(2)], { stdio: "inherit", shell: cli.shell, windowsHide: true });
+const { cmd, args } = spawnTarget(cli, process.argv.slice(2));
+const child = spawn(cmd, args, { stdio: "inherit", shell: cli.shell, windowsHide: true });
 child.on("error", (err) => {
   process.stderr.write(`agent-flow: cannot start the CLI (${cli.via}): ${err.message}\nInstall it: npm i -g github:synthet/synthet-agent-flow, or set AGENT_FLOW_BIN.\n`);
   process.exit(1);

@@ -20,8 +20,8 @@ process.stdin.on("end", () => {
     process.stdout.write("{}");
     process.exit(0);
   }
-  const { cmd, args } = spawnTarget(cli);
-  const child = spawn(cmd, [...args, "hook", event], { stdio: ["pipe", "inherit", "inherit"], shell: cli.shell, windowsHide: true });
+  const { cmd, args } = spawnTarget(cli, ["hook", event]);
+  const child = spawn(cmd, args, { stdio: ["pipe", "inherit", "inherit"], shell: cli.shell, windowsHide: true });
   child.on("error", () => {
     process.stdout.write("{}");
     process.exit(0);
