@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { initWorkspace } from "../src/core/workspace.js";
 import { tempDir } from "./helpers.js";
@@ -40,6 +40,17 @@ describe("serve --exit-on-stdin-close", () => {
     if (code === "still running") child.kill();
     expect(code).toBe(0);
   }, 40_000);
+});
+
+describe("tray menu", () => {
+  it("uses the native Windows menu, like the synthet-agent-mailbox and ai-quotas trays", () => {
+    const source = readFileSync(path.join(ROOT, "tray", "AgentFlowTray.cs"), "utf8");
+    // ContextMenuStrip draws its own square menu, which does not match Windows 11.
+    expect(source).not.toMatch(/new ContextMenuStrip|ContextMenuStrip\s*=/);
+    expect(source).toMatch(/new ContextMenu\(/);
+    expect(source).toMatch(/\.DefaultItem = true/);
+    expect(source.indexOf('"Open dashboard"')).toBeLessThan(source.indexOf('"Quit"'));
+  });
 });
 
 // The exe is a GUI app, so CI only checks that it builds and passes its own startup checks.
