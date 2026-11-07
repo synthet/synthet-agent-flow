@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import type { FlowStore } from "../core/store.js";
+import { actorKind, type FlowStore } from "../core/store.js";
 import { FlowError } from "../core/errors.js";
 import type { Ticket } from "../core/types.js";
 import type { Status } from "../core/config.js";
@@ -500,7 +500,7 @@ export function applyPlan(store: FlowStore, plan: ImportPlan, actor: string, opt
     for (const t of plan.tasks) {
       const id = ids.get(t.key)!;
       if (t.status && !["ready", "backlog"].includes(t.status) && created.some((c) => c.id === id)) {
-        store.setStatusAdmin(id, t.status, actor, `imported as ${t.status}`);
+        store.setStatusAdmin(id, t.status, actorKind(actor) === "agent" ? "system:import" : actor, `imported as ${t.status}`);
       }
     }
     return {

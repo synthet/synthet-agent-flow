@@ -14,7 +14,9 @@ All notable changes to this project are documented here. The format follows [Kee
 - The dashboard default port is now 8791, because 8790 clashes with AI Quotas. Projects with `server.port` set in their config keep it.
 
 ### Fixed
-- Integrations launch Windows `.cmd` CLIs safely through `cross-spawn`: paths with spaces work, bare npm-installed names are found, and arguments are escaped for `cmd.exe`.
+- Integrations launch Windows `.cmd` and `.bat` CLIs safely: paths with spaces work, bare npm-installed names are found, and arguments are escaped for `cmd.exe`, so an argument cannot run a second command. An argument with a newline is refused, because `cmd.exe` would cut it short.
+- `runShell` keeps quotes on Windows, so a DoD command with a quoted path works.
+- An agent can import a task file with checked items, and a failed snapshot export is retried by the next transaction.
 - The MCP server no longer defaults to the privileged `human:<user>` actor, and an agent session cannot pass a `human:` or `system:` actor to a tool. An explicit `--actor` or `AGENT_FLOW_ACTOR` still decides.
 - A failed `tickets.jsonl` write no longer fails an operation that has already committed, and transient Windows rename errors are retried. A claim could be reported as failed while it stayed leased to that agent.
 - Importers parse CRLF markdown. Spec Kit and OpenSpec files with CRLF line endings used to yield no tasks.

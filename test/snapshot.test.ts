@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmdirSync } from "node:fs";
 import path from "node:path";
 import { defaultConfig } from "../src/core/config.js";
 import { FlowStore } from "../src/core/store.js";
@@ -32,6 +32,14 @@ describe("snapshot writes after commit", () => {
     expect(readdirSync(dir)).toEqual(["tickets.jsonl"]);
   });
 
+  it("retries a failed export on the next transaction, even one that changes nothing", () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const { store, snapshot } = storeWithBlockedSnapshot();
+    store.create({ title: "pending export", status: "ready" }, "human:x");
+    rmdirSync(snapshot);
+    store.tx(() => undefined);
+    expect(readFileSync(snapshot, "utf8")).toContain("pending export");
+  });
   it("still reports a failure from an explicit export", () => {
     const { store, snapshot } = storeWithBlockedSnapshot();
     expect(() => store.writeSnapshot(snapshot)).toThrow();

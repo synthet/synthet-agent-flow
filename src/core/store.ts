@@ -1164,6 +1164,7 @@ export class FlowStore {
       this.writeSnapshot(file);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      this.dirty = true; // the next transaction tries again
       process.stderr.write(`agent-flow: could not update ${path.basename(file)}: ${reason}\n`);
     }
   }

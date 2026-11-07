@@ -1,5 +1,5 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import spawn from "cross-spawn";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { batchCommandLine, comSpec, isBatchFile, resolveWindowsCommand } from "./windows.js";
 
 export interface RunResult {
   code: number;
@@ -18,12 +18,31 @@ export interface RunOptions {
   maxBytes?: number;
 }
 
-/**
- * Run argv. Never throws for non-zero exits; `code` is -1 if the binary is missing.
- * cross-spawn finds bare names through PATHEXT and escapes arguments for cmd.exe when the target is a Windows
- * .cmd, such as an npm-installed CLI, so an argument can never be parsed as a second command.
- */
+interface Launch {
+  file: string;
+  args: string[];
+  verbatim?: boolean;
+}
+
+/** Windows runs a .cmd or .bat through cmd.exe, so its arguments must be escaped for that shell. */
+function launchFor(argv: string[], env: NodeJS.ProcessEnv): Launch {
+  if (process.platform === "win32") {
+    const file = resolveWindowsCommand(argv[0], env);
+    if (isBatchFile(file)) return { file: comSpec(env), args: ["/d", "/s", "/c", `"${batchCommandLine(file, argv.slice(1))}"`], verbatim: true };
+  }
+  return { file: argv[0], args: argv.slice(1) };
+}
+
+/** Run argv. Never throws for non-zero exits; `code` is -1 if the binary is missing. */
 export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
+  try {
+    return capture(launchFor(argv, opts.env ?? process.env), opts);
+  } catch (err) {
+    return Promise.resolve({ code: -1, stdout: "", stderr: String(err), timedOut: false, ms: 0 });
+  }
+}
+
+function capture(launch: Launch, opts: RunOptions): Promise<RunResult> {
   const started = Date.now();
   const max = opts.maxBytes ?? 1024 * 1024;
   return new Promise((resolve) => {
@@ -39,12 +58,13 @@ export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
     };
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(argv[0], argv.slice(1), {
+      child = spawn(launch.file, launch.args, {
         cwd: opts.cwd,
         env: opts.env ?? process.env,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
-      }) as ChildProcessWithoutNullStreams; // all three streams are pipes
+        windowsVerbatimArguments: launch.verbatim,
+      });
     } catch (err) {
       stderr = String(err);
       done(-1);
@@ -73,7 +93,9 @@ export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
 
 /** Run a shell command line (DoD commands are user-configured shell strings). */
 export function runShell(command: string, opts: RunOptions = {}): Promise<RunResult> {
-  return process.platform === "win32" ? run(["cmd.exe", "/d", "/s", "/c", command], opts) : run(["sh", "-c", command], opts);
+  if (process.platform !== "win32") return run(["sh", "-c", command], opts);
+  // Verbatim, or Node rewrites each " as \", which cmd.exe does not understand.
+  return capture({ file: comSpec(opts.env ?? process.env), args: ["/d", "/s", "/c", `"${command}"`], verbatim: true }, opts);
 }
 
 export function tail(text: string, chars: number): string {
