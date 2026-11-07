@@ -27,6 +27,20 @@ export function redactSecrets(text: string): string {
   return result;
 }
 
+/**
+ * Replace the home directory with `~` in every spelling a path takes in tracker text: native, forward
+ * slashes, and JSON-escaped backslashes. Case-insensitive, because Windows paths are.
+ */
+export function redactHome(text: string, home: string): string {
+  if (home.length < 3) return text;
+  const forms = new Set([home, home.replace(/\\/g, "/"), home.replace(/\\/g, "\\\\")]);
+  let out = text;
+  for (const form of [...forms].sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "~");
+  }
+  return out;
+}
+
 export function redactObject<T>(value: T): T {
   if (typeof value === "string") return redactSecrets(value) as T;
   if (Array.isArray(value)) return value.map((item) => redactObject(item)) as T;

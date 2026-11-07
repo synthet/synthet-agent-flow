@@ -20,6 +20,7 @@ You must not be the ticket's owner. The tracker refuses self-approval by default
    Run the verification commands named in the criteria and the DoD (`agent-flow dod`) on the branch.
 4. **Give each criterion a verdict.** Run `agent-flow ac verify <id> AC-n --verdict Verified|Failed --evidence "<what you ran / saw>"`.
 5. **Optional: multi-model review.** Run `agent-flow review --swarm <id>`. This needs synthet-agent-swarm and records each harness's vote as a review comment.
+   For a quick check on the evidence alone, run `agent-flow review --jev <id>` (needs `jev.path`; one paid call). Jev reads the recorded evidence, not the code, and only comments.
    Votes are evidence, not ground truth. Read the dissent.
 6. **Decide.**
    - Every criterion is Verified and the code is acceptable: `agent-flow approve <id>`.

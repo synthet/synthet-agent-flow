@@ -71,6 +71,23 @@ agent-flow review af-k3x9q --swarm [--agents codex,claude,antigravity] [--dry-ru
 
 Verified against a real synthet-agent-swarm build with the Claude Code harness. `--dry-run` lists the planned `claude -p` command. A real run reviewed the diff and recorded a per-criterion pass in about 16 s. The swarm writes run artifacts to `.agent-runs/` in the workspace; gitignore it.
 
+## jev-mcp (advisory Jev review)
+
+```bash
+agent-flow config set jev.path '"/path/to/jev-mcp"'   # or set AGENT_FLOW_JEV_PATH; needs uv on PATH
+agent-flow review af-k3x9q --jev [--dry-run]
+```
+
+Jev (TypeSafe System One) judges text, not code. It answers whether the recorded evidence for each acceptance criterion shows that the criterion is met. It is a check on the evidence, not a code review, and it only advises.
+
+1. agent-flow builds one state from the ticket: the spec, each criterion with its recorded verdict and evidence, the latest handoff, the DoD result from submit, and up to five review comments by others. Earlier `system:jev` comments are left out, so Jev never grades its own opinion. Every string is redacted for secrets, and the home directory becomes `~`.
+2. It starts the checkout's own launcher, `uv run --project <jev.path> python scripts/run_jev_mcp.py`. That launcher loads the API key from the checkout's `.env`, so agent-flow never reads, passes or stores the key.
+3. One `jev_system_one` call asks a choice per criterion (`supported`, `partial` or `unsupported`), a yes/no on whether the notes say required work is unfinished, and an overall read (`looks_ready`, `needs_changes` or `unclear`). `jev.model` pins a model; otherwise jev-mcp's default applies.
+4. The answers and their confidences are recorded as a `review` comment by `system:jev`, plus a `jev.reviewed` event. Status and acceptance verdicts are never changed, so the review gate still needs a human or peer reviewer.
+5. With `jev.onSubmit: true`, the review runs after every successful submit, from the CLI, MCP or REST. A Jev failure never fails the submit: it is recorded as a `jev.failed` event. This is off by default, because each run spends paid API quota.
+
+`--dry-run` (or `flow_review_jev` with `dry_run: true`) prints the exact request and launch command without starting Jev. An `ok: false` envelope, or an answer missing for any question, is an `EXTERNAL_FAILURE` and records nothing.
+
 ## GitHub
 
 The mirror is one-way. agent-flow owns agent state; GitHub owns the issue's title and body once it exists.

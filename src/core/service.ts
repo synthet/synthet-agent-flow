@@ -4,6 +4,8 @@ import { worktreeTop } from "./paths.js";
 import type { ReadyFilter, Ticket } from "./types.js";
 import type { Workspace } from "./workspace.js";
 import type { Action } from "./states.js";
+import type { McpOpener } from "../integrations/mcp-client.js";
+import type { JevReview } from "../integrations/jev.js";
 
 /**
  * Lifecycle operations shared by CLI, MCP and REST. The store enforces the rules; this layer adds the
@@ -37,15 +39,18 @@ export async function submitTicket(
   ws: Workspace,
   id: string,
   actor: string,
-  opts: { skipDod?: boolean; force?: boolean; cwd?: string } = {},
-): Promise<{ ticket: Ticket; dod: DodResult | null }> {
+  opts: { skipDod?: boolean; force?: boolean; cwd?: string; jevOpen?: McpOpener } = {},
+): Promise<{ ticket: Ticket; dod: DodResult | null; jev?: JevReview | { error: string } }> {
   let dod: DodResult | null = null;
   if (!opts.skipDod && ws.config.dod.length) dod = await checkDod(ws, opts.cwd ?? process.cwd());
   const ticket = ws.store.transition(id, "submit", actor, {
     force: opts.force,
     dod: dod ? { passed: dod.passed, summary: dod.summary } : undefined,
   });
-  return { ticket, dod };
+  if (!ws.config.jev.onSubmit) return { ticket, dod };
+  // Opt-in advisory review. It runs after the submit has committed and fails open.
+  const { jevAfterSubmit } = await import("../integrations/jev.js");
+  return { ticket, dod, jev: await jevAfterSubmit(ws, id, opts.jevOpen) };
 }
 
 export async function applyAction(

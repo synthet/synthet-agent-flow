@@ -5,7 +5,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { RunResult } from "../src/core/proc.js";
 import { initWorkspace, openWorkspace, type Workspace } from "../src/core/workspace.js";
-import { claimTicket } from "../src/core/service.js";
+import { claimTicket, submitTicket } from "../src/core/service.js";
+import { jevReview } from "../src/integrations/jev.js";
+import os from "node:os";
 import { attachNotifiers, flushOutbox } from "../src/integrations/notify.js";
 import { applyPrState, pushIssues, reconcile, renderTemplate, prBody, githubWebhookHandler } from "../src/integrations/github.js";
 import { swarmReview } from "../src/integrations/swarm.js";
@@ -293,6 +295,165 @@ describe("swarm review", () => {
     const mcp = fakeMcp(() => ({ ok: false, error: { code: "unknown_harness", message: "nope", next_steps: ["swarm_search"] }, harnesses: [] }));
     await expect(swarmReview(ws, id, { cwd: dir, harnesses: ["nope"] }, mcp.open)).rejects.toThrow(/unknown_harness/);
     ws.close();
+  });
+});
+
+describe("jev review (advisory)", () => {
+  const home = os.homedir();
+
+  function jevCheckout(): string {
+    const dir = tempDir("af-jev-");
+    mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    writeFileSync(path.join(dir, "scripts", "run_jev_mcp.py"), "");
+    return dir;
+  }
+
+  /** A ticket in review with one verified and one open criterion, a handoff, and prior review comments. */
+  async function inReview(jev: Record<string, unknown> = {}) {
+    const ctx = repo({ jev: { path: jevCheckout(), ...jev } } as never);
+    const t = ctx.ws.store.create({ title: "Judge me", body: "Make the widget work.", status: "ready", acceptance: ["widget works", "docs updated"] }, "human:x");
+    claimTicket(ctx.ws, t.id, "claude:a");
+    ctx.ws.store.verifyAcceptance(t.id, "AC-1", "Verified", `ran npm test in ${home}${path.sep}work: 12 passed; token=abcd1234efgh5678`, "claude:a");
+    ctx.ws.store.comment(t.id, "handoff", "Changed the widget. Left: docs still to write.", "claude:a");
+    ctx.ws.store.transition(t.id, "submit", "claude:a");
+    ctx.ws.store.comment(t.id, "review", "Earlier Jev comment that must not be resent", "system:jev");
+    ctx.ws.store.comment(t.id, "review", "Peer says the widget test is thin", "codex:peer");
+    return { ...ctx, id: t.id };
+  }
+
+  /** Answers every question the way `pick` says, in the jev-mcp envelope. */
+  function jevAnswers(pick: (qid: string, criteria: string[]) => string, noul = 0.2) {
+    return (_tool: string, args: Record<string, unknown>) => {
+      const questions = args.questions as Record<string, { type: string; criteria?: Record<string, string> }>;
+      const answers = Object.fromEntries(
+        Object.entries(questions).map(([qid, q]) => {
+          if (q.type === "noul") return [qid, { type: "noul", noul }];
+          const keys = Object.keys(q.criteria ?? {});
+          const choice = pick(qid, keys);
+          return [qid, { type: "choice", choice, confidence: 0.8, probabilities: Object.fromEntries(keys.map((k) => [k, k === choice ? 0.8 : 0.1])) }];
+        }),
+      );
+      return { ok: true, result: { model: "jev-test", usage: { input_tokens: 10, output_tokens: 2 }, answers } };
+    };
+  }
+
+  it("asks one jev_system_one call per ticket and records an advisory system:jev review comment", async () => {
+    const { ws, dir, id } = await inReview();
+    const cfg = ws.config.jev.path!;
+    const mcp = fakeMcp(jevAnswers((qid, keys) => (qid === "overall" ? "looks_ready" : keys[0])));
+    const res = await jevReview(ws, id, { cwd: dir }, mcp.open);
+    expect(mcp.spawns).toHaveLength(1);
+    expect(mcp.spawns[0]).toMatchObject({ command: "uv", args: ["run", "--project", cfg, "python", path.join(cfg, "scripts", "run_jev_mcp.py")], cwd: cfg });
+    expect(mcp.spawns[0].env ?? {}).not.toHaveProperty("JEV_TOKEN");
+    expect(mcp.closed()).toBe(1);
+    expect(mcp.calls.map((c) => c.tool)).toEqual(["jev_system_one"]);
+    const questions = mcp.calls[0].args.questions as Record<string, { type: string; instructions: string; criteria?: Record<string, string> }>;
+    expect(Object.keys(questions).sort()).toEqual(["ac_1", "ac_2", "open_work", "overall"]);
+    expect(Object.keys(questions.ac_1.criteria!)).toEqual(["supported", "partial", "unsupported"]);
+    expect(questions.ac_2.instructions).toContain("AC-2");
+    expect(questions.open_work.type).toBe("noul");
+    expect(res.verdict).toBe("looks_ready");
+    expect(res.ac["AC-1"]).toEqual({ choice: "supported", confidence: 0.8 });
+    expect(res.model).toBe("jev-test");
+    const comment = ws.store.detail(id).comments.at(-1)!;
+    expect(comment).toMatchObject({ kind: "review", actor: "system:jev" });
+    expect(comment.body).toContain("Jev review (advisory");
+    expect(comment.body).toContain("AC-1: supported (0.80)");
+    expect(comment.body).toContain("not the code");
+    expect(ws.store.detail(id, { events: 50 }).events.some((e) => e.action === "jev.reviewed")).toBe(true);
+    ws.close();
+  });
+
+  it("never changes ticket status or acceptance verdicts, whatever Jev answers", async () => {
+    for (const verdict of ["looks_ready", "needs_changes", "unclear"]) {
+      const { ws, dir, id } = await inReview();
+      const before = ws.store.detail(id).acceptance.map((a) => a.verdict);
+      const mcp = fakeMcp(jevAnswers((qid, keys) => (qid === "overall" ? verdict : keys.at(-1)!), 0.9));
+      await jevReview(ws, id, { cwd: dir }, mcp.open);
+      expect(ws.store.get(id).status).toBe("review");
+      expect(ws.store.detail(id).acceptance.map((a) => a.verdict)).toEqual(before);
+      ws.close();
+    }
+  });
+
+  it("sends no home path or secret, and leaves out earlier Jev comments", async () => {
+    const { ws, dir, id } = await inReview();
+    const mcp = fakeMcp(jevAnswers((_q, keys) => keys[0]));
+    await jevReview(ws, id, { cwd: dir }, mcp.open);
+    const sent = JSON.stringify(mcp.calls[0].args).toLowerCase();
+    for (const form of [home, home.replace(/\\/g, "/"), home.replace(/\\/g, "\\\\")]) expect(sent).not.toContain(form.toLowerCase());
+    expect(sent).not.toContain("abcd1234efgh5678");
+    expect(sent).toContain("~");
+    expect(sent).not.toContain("earlier jev comment");
+    expect(sent).toContain("peer says the widget test is thin");
+    expect(sent).toContain("docs still to write");
+    ws.close();
+  });
+
+  it("dry run returns the exact request without starting the server, even outside review", async () => {
+    const ctx = repo({ jev: { path: jevCheckout() } } as never);
+    const t = ctx.ws.store.create({ title: "Draft", status: "ready", acceptance: ["x"] }, "human:x");
+    const mcp = fakeMcp(() => {
+      throw new Error("must not be called");
+    });
+    const res = await jevReview(ctx.ws, t.id, { cwd: ctx.dir, dryRun: true }, mcp.open);
+    expect(mcp.spawns).toHaveLength(0);
+    expect(res.dry_run?.tool).toBe("jev_system_one");
+    expect(Object.keys(res.dry_run!.arguments.questions)).toContain("ac_1");
+    expect(ctx.ws.store.detail(t.id).comments).toHaveLength(0);
+    ctx.ws.close();
+  });
+
+  it("gives clear errors and records nothing when Jev fails", async () => {
+    const unset = repo();
+    const draft = unset.ws.store.create({ title: "x", status: "ready" }, "human:x");
+    await expect(jevReview(unset.ws, draft.id, { cwd: unset.dir, dryRun: true })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    const empty = repo({ jev: { path: tempDir("af-nojev-") } } as never);
+    const d2 = empty.ws.store.create({ title: "x", status: "ready" }, "human:x");
+    await expect(jevReview(empty.ws, d2.id, { cwd: empty.dir, dryRun: true })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const { ws, dir, id } = await inReview();
+    const comments = ws.store.detail(id).comments.length;
+    const envelope = fakeMcp(() => ({ ok: false, error: { code: "auth_failed", message: "bad token", retryable: false, next_steps: ["set JEV_TOKEN"] } }));
+    await expect(jevReview(ws, id, { cwd: dir }, envelope.open)).rejects.toMatchObject({ code: "EXTERNAL_FAILURE", message: expect.stringContaining("auth_failed") });
+    const partial = fakeMcp(() => ({ ok: true, result: { model: "jev-test", usage: null, answers: { overall: { type: "choice", choice: "looks_ready", confidence: 0.9, probabilities: {} } } } }));
+    await expect(jevReview(ws, id, { cwd: dir }, partial.open)).rejects.toMatchObject({ code: "EXTERNAL_FAILURE" });
+    expect(envelope.closed() + partial.closed()).toBe(2);
+    expect(ws.store.detail(id).comments).toHaveLength(comments);
+
+    const notReview = ws.store.create({ title: "y", status: "ready" }, "human:x");
+    await expect(jevReview(ws, notReview.id, { cwd: dir }, envelope.open)).rejects.toMatchObject({ code: "INVALID_TRANSITION" });
+    ws.close();
+  });
+
+  it("onSubmit runs the review after submit, fails open, and starts nothing when off", async () => {
+    for (const onSubmit of [true, false]) {
+      const ctx = repo({ jev: { path: jevCheckout(), onSubmit } } as never);
+      const t = ctx.ws.store.create({ title: "Auto", status: "ready", acceptance: ["x"] }, "human:x");
+      claimTicket(ctx.ws, t.id, "claude:a");
+      ctx.ws.store.comment(t.id, "handoff", "done", "claude:a");
+      const mcp = fakeMcp(jevAnswers((_q, keys) => keys[0]));
+      const res = await submitTicket(ctx.ws, t.id, "claude:a", { skipDod: true, cwd: ctx.dir, jevOpen: mcp.open });
+      expect(res.ticket.status).toBe("review");
+      expect(mcp.spawns).toHaveLength(onSubmit ? 1 : 0);
+      expect(res.jev?.verdict).toBe(onSubmit ? "looks_ready" : undefined);
+      expect(ctx.ws.store.detail(t.id).comments.some((c) => c.actor === "system:jev")).toBe(onSubmit);
+      ctx.ws.close();
+    }
+
+    const ctx = repo({ jev: { path: jevCheckout(), onSubmit: true } } as never);
+    const t = ctx.ws.store.create({ title: "Auto fail", status: "ready" }, "human:x");
+    claimTicket(ctx.ws, t.id, "claude:a");
+    ctx.ws.store.comment(t.id, "handoff", "done", "claude:a");
+    const broken: McpOpener = async () => {
+      throw new Error("uv not found");
+    };
+    const res = await submitTicket(ctx.ws, t.id, "claude:a", { skipDod: true, cwd: ctx.dir, jevOpen: broken });
+    expect(res.ticket.status).toBe("review");
+    expect(res.jev).toMatchObject({ error: expect.stringContaining("uv not found") });
+    const failed = ctx.ws.store.detail(t.id, { events: 50 }).events.find((e) => e.action === "jev.failed");
+    expect(failed?.payload.error).toContain("uv not found");
+    ctx.ws.close();
   });
 });
 

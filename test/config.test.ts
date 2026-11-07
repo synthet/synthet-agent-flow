@@ -15,6 +15,7 @@ describe("config defaults", () => {
     expect(c.github).toEqual({ enabled: false, repo: null, labelPrefix: "status:", issueLabel: "agent-flow", reconcileMinutes: 5, webhookSecretEnv: "AGENT_FLOW_GITHUB_SECRET" });
     expect(c.mailbox.notifyOn).toEqual(["claimed", "review", "rejected", "blocked", "needs_human", "done", "lease_expired"]);
     expect(c.swarm).toEqual({ enabled: false, path: null, harnesses: [], autoApproveOnMajority: false, timeoutMs: 300000 });
+    expect(c.jev).toEqual({ path: null, model: null, onSubmit: false, timeoutMs: 120000 });
     expect(c.hooks).toEqual({ taskCompletedDod: false, handoffOnStop: true, heartbeatMinutes: 5 });
     expect(c.server).toEqual({ host: "127.0.0.1", port: 8791 });
   });
