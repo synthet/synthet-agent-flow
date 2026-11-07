@@ -1,2 +1,3 @@
 .agent-flow/tickets.jsonl text eol=lf merge=union
 *.cmd text eol=crlf
+bin/*.js text eol=lf
