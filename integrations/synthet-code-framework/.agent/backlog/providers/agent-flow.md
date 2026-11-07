@@ -71,4 +71,4 @@ From then on the tracker owns status. The checkboxes in `tasks.md` become a deri
   - `skill:<x>` routes a ticket to agents that advertise skill `<x>`.
   - `needs-human` is added automatically after repeated rejections.
 - **WIP:** `wip.perAgent` (default 1) and `wip.columns.in_progress` (default 4), both in config.
-- **Dashboard:** `agent-flow serve` → http://127.0.0.1:8790.
+- **Dashboard:** `agent-flow serve` → http://127.0.0.1:8791.

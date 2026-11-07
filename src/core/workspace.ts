@@ -48,9 +48,9 @@ export function initWorkspace(cwd: string, overrides: Partial<FlowConfig> = {}):
       ["# agent-flow local state (the committed record is tickets.jsonl + config.json)", "flow.db", "flow.db-*", "serve.json", "loop.json", "STOP", "*.tmp", ""].join("\n"),
     );
   }
-  // Mark the snapshot as union-mergeable-ish: line-per-ticket keeps git merges readable.
+  // Union merges keep the line-per-ticket snapshot readable, and eol=lf matches what the snapshot writer emits, so autocrlf checkouts stay clean.
   const ga = path.join(root, ".gitattributes");
-  const rule = ".agent-flow/tickets.jsonl merge=union\n";
+  const rule = ".agent-flow/tickets.jsonl text eol=lf merge=union\n";
   if (!existsSync(ga) || !readFileSync(ga, "utf8").includes(".agent-flow/tickets.jsonl")) appendFileSync(ga, rule);
   const ws = openWorkspace(root);
   ws.store.writeSnapshot(paths.snapshot);

@@ -92,7 +92,7 @@ export const configSchema = z.object({
   server: z
     .object({
       host: z.string().default("127.0.0.1"),
-      port: z.number().int().min(0).max(65535).default(8790),
+      port: z.number().int().min(0).max(65535).default(8791),
     })
     .default({}),
 });

@@ -22,7 +22,7 @@ Codes are `NOT_FOUND`, `INVALID_ARGUMENT`, `INVALID_TRANSITION`, `CLAIM_CONFLICT
 | sdd | `import-tasks <file\|dir> [--format auto\|framework\|speckit\|openspec\|checklist] [--spec spec.md] [--epic id] [--no-epic] [--backlog] [--dry-run]` · `import-backlog [items.md]` |
 | integrations | `github push [<id>…]\|reconcile\|pr <id>\|body <id>` · `mailbox test\|flush\|status` · `review <id> --swarm [--agents …] [--dry-run]` |
 | automation | `loop start\|run\|stop\|status [--max N] [--label l] [--harness claude\|codex] [--max-turns N]` |
-| servers | `serve [--port 8790] [--open]` · `mcp` |
+| servers | `serve [--port 8791] [--open]` · `mcp` |
 | data | `export [--out f\|--stdout]` · `import [file]` · `reap` · `audit verify` |
 
 When a lifecycle or detail command gets no `<id>`, it uses the ticket bound to the current branch (`af/<id>-…`). If no ticket is bound, it falls back to the actor's active ticket.
@@ -107,7 +107,7 @@ Hooks always exit 0 with `{}` on malformed input or internal errors (they fail o
   "mailbox": { "enabled": false, "bin": "agent-mail", "session": "agent-flow", "scope": null, "audience": "group", "notifyOn": ["claimed", "review", "rejected", "blocked", "needs_human", "done", "lease_expired"], "reviewPeer": null },
   "swarm": { "enabled": false, "path": null, "harnesses": [], "autoApproveOnMajority": false, "timeoutMs": 300000 },
   "hooks": { "taskCompletedDod": false, "handoffOnStop": true, "heartbeatMinutes": 5 },
-  "server": { "host": "127.0.0.1", "port": 8790 }
+  "server": { "host": "127.0.0.1", "port": 8791 }
 }
 ```
 
