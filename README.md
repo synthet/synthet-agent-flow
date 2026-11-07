@@ -14,6 +14,7 @@ It plugs into the sibling projects:
 - [synthet-code-framework](https://github.com/synthet/synthet-code-framework): agent-flow is a **backlog provider**, and it imports `/tasks` `T-n` tables.
 - [synthet-agent-mailbox](https://github.com/synthet/synthet-agent-mailbox): sends **notifications** on claim, review, block and escalation.
 - [synthet-agent-swarm](https://github.com/synthet/synthet-agent-swarm): **multi-harness review votes** on a ticket.
+- [jev-mcp](https://github.com/synthet/jev-mcp): an **advisory evidence check** by Jev on a ticket in review.
 
 ## Why
 
@@ -132,6 +133,7 @@ Each import creates an epic plus tickets, and carries over dependencies, scope p
   - `github reconcile` (also run at session start) and the signed `POST /hooks/github` webhook map PR state back: changes requested → reject, merged → done.
 - **synthet-agent-mailbox**: set `mailbox.enabled` and a `scope`. Claim, review, rejection, block, needs-human, done and lease-expiry events are published to the mailbox journal through its MCP server (subscribe, then publish, with idempotency keys). Optionally they also go to a reviewer peer with `agent-mail send`. Delivery runs through a retrying outbox and never blocks a write.
 - **synthet-agent-swarm**: `agent-flow review <id> --swarm` calls the swarm's `swarm_run` tool (mode `review`) to ask the installed harnesses (Codex, Claude Code, Antigravity, …) for read-only verdicts, one per criterion. The strict-majority votes are recorded as a review comment. Auto-approval is opt-in.
+- **jev-mcp**: `agent-flow review <id> --jev` asks Jev, through a jev-mcp checkout, whether each criterion's recorded evidence shows it is met. The answer is an advisory review comment by `system:jev`; Jev never approves, rejects or verifies. `jev.onSubmit` runs it after every submit, and is off by default because each run is a paid call.
 
 Details: [docs/integrations.md](docs/integrations.md).
 

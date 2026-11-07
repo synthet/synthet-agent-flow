@@ -162,11 +162,18 @@ register({
 register({
   name: "review",
   group: "integrations",
-  summary: "Multi-harness review of a ticket in review via synthet-agent-swarm (--swarm), recorded as a review comment",
-  usage: "review <id> --swarm [--agents codex,claude] [--dry-run]",
-  options: { swarm: { type: "boolean" }, agents: { type: "string" }, "dry-run": { type: "boolean" } },
+  summary: "Review a ticket in review: multi-harness via synthet-agent-swarm (--swarm), or advisory Jev evidence check (--jev); recorded as a review comment",
+  usage: "review <id> --swarm [--agents codex,claude] [--dry-run] | review <id> --jev [--dry-run]",
+  options: { swarm: { type: "boolean" }, jev: { type: "boolean" }, agents: { type: "string" }, "dry-run": { type: "boolean" } },
   async run(ctx) {
-    if (!bool(ctx.values.swarm)) throw new FlowError("INVALID_ARGUMENT", "use the flow-review skill for manual review, or pass --swarm");
+    if (bool(ctx.values.swarm) && bool(ctx.values.jev)) throw new FlowError("INVALID_ARGUMENT", "pass --swarm or --jev, not both");
+    if (bool(ctx.values.jev)) {
+      const { jevReview, jevComment } = await import("../../integrations/jev.js");
+      const res = await jevReview(ctx.ws(), ctx.positionals[0] ?? "", { cwd: ctx.cwd, dryRun: bool(ctx.values["dry-run"]) });
+      if ("dry_run" in res) return ctx.print(res.dry_run, () => JSON.stringify(res.dry_run, null, 2));
+      return ctx.print(res, () => jevComment(res));
+    }
+    if (!bool(ctx.values.swarm)) throw new FlowError("INVALID_ARGUMENT", "use the flow-review skill for manual review, or pass --swarm or --jev");
     const { swarmReview } = await import("../../integrations/swarm.js");
     const ws = ctx.ws();
     const res = await swarmReview(ws, ctx.positionals[0] ?? "", { cwd: ctx.cwd, harnesses: list(ctx.values.agents), dryRun: bool(ctx.values["dry-run"]) });

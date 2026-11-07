@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createFlowMcpServer, TOOL_NAMES } from "../src/mcp/server.js";
 import { defaultConfig } from "../src/core/config.js";
@@ -73,8 +74,25 @@ describe("mcp server", () => {
     const ready = tools.tools.find((t) => t.name === "flow_ready")!;
     expect(ready.annotations?.readOnlyHint).toBe(true);
     expect(tools.tools.find((t) => t.name === "flow_cancel")!.annotations?.destructiveHint).toBe(true);
+    expect(tools.tools.find((t) => t.name === "flow_review_jev")!.annotations?.openWorldHint).toBe(true);
     const res = await client.readResource({ uri: "flow://workflow/overview" });
     expect((res.contents[0] as { text: string }).text).toContain("Five-step loop");
+  });
+
+  it("flow_review_jev explains how to configure Jev, and dry-runs without starting it", async () => {
+    const { call, store } = await connect();
+    const t = (await call("flow_create", { title: "Judge", acceptance: ["ok"] })).data;
+    const unset = await call("flow_review_jev", { id: t.id, dry_run: true });
+    expect(unset.isError).toBe(true);
+    expect(unset.data.error.code).toBe("INVALID_ARGUMENT");
+    const checkout = tempDir("af-jev-mcp-");
+    mkdirSync(path.join(checkout, "scripts"), { recursive: true });
+    writeFileSync(path.join(checkout, "scripts", "run_jev_mcp.py"), "");
+    store.config.jev.path = checkout;
+    const dry = await call("flow_review_jev", { id: t.id, dry_run: true });
+    expect(dry.isError).toBe(false);
+    expect(dry.data.dry_run.tool).toBe("jev_system_one");
+    expect(Object.keys(dry.data.dry_run.arguments.questions)).toContain("ac_1");
   });
 
   it("drives the lifecycle end to end", async () => {

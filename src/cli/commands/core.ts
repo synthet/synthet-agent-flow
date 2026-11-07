@@ -315,12 +315,13 @@ register(
       const ws = ctx.ws();
       const id = ticketArg(ctx);
       try {
-        const { ticket, dod } = await submitTicket(ws, id, ctx.actor, {
+        const { ticket, dod, jev } = await submitTicket(ws, id, ctx.actor, {
           skipDod: bool(ctx.values["skip-dod"]),
           force: bool(ctx.values.force),
           cwd: ctx.cwd,
         });
-        ctx.print({ ticket, dod }, () => `${dod ? `${dod.summary}\n` : ""}Submitted for review: ${ticketRow(ticket)}`);
+        const jevLine = !jev ? "" : "error" in jev ? `\nJev review failed (submit kept): ${jev.error}` : `\nJev review (advisory): ${jev.verdict}`;
+        ctx.print({ ticket, dod, ...(jev ? { jev } : {}) }, () => `${dod ? `${dod.summary}\n` : ""}Submitted for review: ${ticketRow(ticket)}${jevLine}`);
       } catch (err) {
         throw err;
       }
