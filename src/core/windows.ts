@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { FlowError } from "./errors.js";
 
@@ -7,12 +7,15 @@ import { FlowError } from "./errors.js";
  * and again when the batch file expands %*, as npm's shims do. So every metacharacter needs escaping twice,
  * for every batch file. Escaping once leaves a quote followed by `&` free to start a second command.
  * cmd.exe cannot carry a newline at all, so those arguments are refused rather than silently cut short.
+ * Trade-off: a batch file that reads %~1 directly, rather than forwarding %*, sees the argument with its quotes.
+ * The escaping cannot serve both, and forwarding is what npm shims do. The failure there is a wrong value, not injection.
  */
 const META = /([()\][%!^"`<>&|;, *?])/g;
 const caret = (s: string): string => s.replace(META, "^$1");
 
+/** A resolved path is quoted, so `=` and spaces stay in it. A bare name must not be: see spawnTarget in resolve.mjs. */
 export function escapeBatchCommand(file: string): string {
-  return caret(file);
+  return /[\\/]/.test(file) ? `"${file}"` : caret(file); // real quotes: ^" would be a literal, and = would split the path
 }
 
 /** Quote for the C runtime: backslashes double only before a quote, including the closing one. */
@@ -43,17 +46,34 @@ export function batchCommandLine(file: string, args: string[]): string {
 }
 
 export function comSpec(env: NodeJS.ProcessEnv): string {
-  return env.ComSpec ?? env.COMSPEC ?? process.env.ComSpec ?? "cmd.exe";
+  return env.ComSpec || env.COMSPEC || process.env.ComSpec || "cmd.exe";
+}
+
+/** Plain objects keep their key casing, unlike process.env, so match names case-insensitively. */
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const exact = env[name];
+  if (exact !== undefined) return exact;
+  const key = Object.keys(env).find((k) => k.toUpperCase() === name);
+  return key === undefined ? undefined : env[key];
+}
+
+function isFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** Find a command the way the shell would, through PATH and PATHEXT. Returns the input if nothing matches. */
-export function resolveWindowsCommand(command: string, env: NodeJS.ProcessEnv, exists: (p: string) => boolean = existsSync): string {
-  const exts = (env.PATHEXT ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
-  const named = (base: string): string[] => (path.win32.extname(base) ? [base, ...exts.map((e) => base + e)] : exts.map((e) => base + e));
-  if (/[\\/]/.test(command)) return named(command).find(exists) ?? command;
-  const dirs = (env.PATH ?? env.Path ?? "").split(";").filter(Boolean);
+export function resolveWindowsCommand(command: string, env: NodeJS.ProcessEnv, cwd: string = process.cwd()): string {
+  const exts = (envValue(env, "PATHEXT") ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  // Only PATHEXT counts as an extension: npm also writes an extensionless sh script next to my.tool.cmd.
+  const named = (base: string): string[] => (exts.some((e) => base.toLowerCase().endsWith(e.toLowerCase())) ? [base] : exts.map((e) => base + e));
+  if (/[\\/]/.test(command)) return named(path.win32.resolve(cwd, command)).find(isFile) ?? command;
+  const dirs = (envValue(env, "PATH") ?? "").split(";").map((d) => d.replace(/^"+|"+$/g, "")).filter(Boolean);
   for (const dir of dirs) {
-    const found = named(path.win32.join(dir, command)).find(exists);
+    const found = named(path.win32.resolve(cwd, dir, command)).find(isFile);
     if (found) return found;
   }
   return command;

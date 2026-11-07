@@ -40,7 +40,7 @@ const escapeArgument = (arg) => {
 /**
  * Build spawn()'s command and args for a resolved CLI. With `shell: true` Node joins them unescaped, and Node 24
  * deprecates that form (DEP0190). So the shell form is one command string, escaped for cmd.exe. Arguments are escaped
- * twice, because a .cmd parses them again when it expands %*. The command is never quoted: for a quoted bare name
+ * twice, because a .cmd parses them again when it expands %*. A path is quoted, but a bare name is not: for a quoted name
  * found on PATH (npx.cmd), cmd.exe expands %~dp0 to the cwd.
  * @param {{ argv: string[], shell: boolean }} cli
  * @param {string[]} [extra] arguments to add after the resolved argv
@@ -49,7 +49,7 @@ const escapeArgument = (arg) => {
 export function spawnTarget(cli, extra = []) {
   const [cmd, ...args] = [...cli.argv, ...extra];
   if (!cli.shell) return { cmd, args };
-  return { cmd: [caret(cmd), ...args.map(escapeArgument)].join(" "), args: [] };
+  return { cmd: [/[\\/]/.test(cmd) ? `"${cmd}"` : caret(cmd), ...args.map(escapeArgument)].join(" "), args: [] };
 }
 
 /**

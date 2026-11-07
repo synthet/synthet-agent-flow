@@ -25,10 +25,11 @@ interface Launch {
 }
 
 /** Windows runs a .cmd or .bat through cmd.exe, so its arguments must be escaped for that shell. */
-function launchFor(argv: string[], env: NodeJS.ProcessEnv): Launch {
+function launchFor(argv: string[], env: NodeJS.ProcessEnv, cwd?: string): Launch {
   if (process.platform === "win32") {
-    const file = resolveWindowsCommand(argv[0], env);
+    const file = resolveWindowsCommand(argv[0], env, cwd);
     if (isBatchFile(file)) return { file: comSpec(env), args: ["/d", "/s", "/c", `"${batchCommandLine(file, argv.slice(1))}"`], verbatim: true };
+    return { file, args: argv.slice(1) };
   }
   return { file: argv[0], args: argv.slice(1) };
 }
@@ -36,7 +37,7 @@ function launchFor(argv: string[], env: NodeJS.ProcessEnv): Launch {
 /** Run argv. Never throws for non-zero exits; `code` is -1 if the binary is missing. */
 export function run(argv: string[], opts: RunOptions = {}): Promise<RunResult> {
   try {
-    return capture(launchFor(argv, opts.env ?? process.env), opts);
+    return capture(launchFor(argv, opts.env ?? process.env, opts.cwd), opts);
   } catch (err) {
     return Promise.resolve({ code: -1, stdout: "", stderr: String(err), timedOut: false, ms: 0 });
   }
@@ -86,6 +87,7 @@ function capture(launch: Launch, opts: RunOptions): Promise<RunResult> {
       done(-1);
     });
     child.on("close", (code) => done(timedOut ? 124 : (code ?? 1)));
+    child.stdin.on("error", () => undefined); // a child may exit before reading its input
     if (opts.input !== undefined) child.stdin.end(opts.input);
     else child.stdin.end();
   });

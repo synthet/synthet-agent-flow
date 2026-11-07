@@ -40,6 +40,15 @@ describe("snapshot writes after commit", () => {
     store.tx(() => undefined);
     expect(readFileSync(snapshot, "utf8")).toContain("pending export");
   });
+  it("keeps the pending export through a transaction that rolls back", () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const { store, snapshot } = storeWithBlockedSnapshot();
+    store.create({ title: "pending export", status: "ready" }, "human:x");
+    rmdirSync(snapshot);
+    expect(() => store.tx(() => { throw new Error("rolled back"); })).toThrow("rolled back");
+    store.tx(() => undefined);
+    expect(readFileSync(snapshot, "utf8")).toContain("pending export");
+  });
   it("still reports a failure from an explicit export", () => {
     const { store, snapshot } = storeWithBlockedSnapshot();
     expect(() => store.writeSnapshot(snapshot)).toThrow();

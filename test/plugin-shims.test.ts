@@ -78,7 +78,7 @@ describe("plugin CLI resolver", () => {
   it("builds one escaped command string for a shell, which Node 24 requires (DEP0190)", () => {
     const { cmd, args } = spawnTarget({ argv: ["C:\\a b\\agent-flow.cmd"], shell: true }, ['x" & y']);
     expect(args).toEqual([]);
-    expect(cmd.startsWith("C:\\a^ b\\agent-flow.cmd ")).toBe(true);
+    expect(cmd.startsWith('"C:\\a b\\agent-flow.cmd" ')).toBe(true);
     expect(cmd).not.toMatch(/[^^]&/);
   });
 
@@ -161,6 +161,11 @@ describe.runIf(WIN)("a .cmd CLI in a path with a space", () => {
     expect(r.status).toBe(0);
     expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
     expect(readFileSync(log, "utf8")).toBe(`${arg}\n`);
+  });
+  it("hook.mjs fails open when an argument cannot be passed", () => {
+    const r = runScript(HOOK, ["bad\nevent"], { PATH: installCmd(failingCli) }, "{}");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe("{}");
   });
   it("af.mjs runs it", () => {
     const log = path.join(tempDir(), "log.txt");

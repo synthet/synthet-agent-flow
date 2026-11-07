@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { copyFileSync, existsSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { run, runShell } from "../src/core/proc.js";
 import { tempDir } from "./helpers.js";
@@ -21,6 +21,10 @@ describe("run", () => {
     expect((await run(["af-no-such-binary-xyz"])).code).toBe(-1);
   });
 
+  it("survives a child that exits without reading a large input", async () => {
+    const r = await run([process.execPath, "-e", "process.exit(0)"], { input: "x".repeat(4 * 1024 * 1024) });
+    expect(r.code).toBe(0);
+  });
   it("forwards stdin and the exit code", async () => {
     const r = await run([process.execPath, "-e", `process.stdout.write(require("fs").readFileSync(0,"utf8")); process.exitCode = 3`], { input: "hello" });
     expect(r).toMatchObject({ code: 3, stdout: "hello" });
@@ -35,6 +39,55 @@ describe("runShell", () => {
   });
 });
 
+describe.runIf(WIN)("run with awkward batch paths", () => {
+  /** A .cmd that finds its entry through %~dp0, as npm's shims do, so a wrong path breaks it. */
+  function installIn(dirName: string, name = "tool"): string {
+    const dir = path.join(tempDir(), dirName);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "cli.cjs"), ECHO_ARGS);
+    writeFileSync(path.join(dir, `${name}.cmd`), `@"${process.execPath}" "%~dp0cli.cjs" %*\r\n@exit /b %errorlevel%\r\n`);
+    return dir;
+  }
+
+  it.each([["with space"], ["a&b"], ["a(b)"], ["a,b"], ["a;b"], ["a=b"], ["100%"], ["a^b"], ["a b&c (d)"]])("runs a .cmd from %j and %~dp0 still works", async (dirName) => {
+    const r = await run([path.join(installIn(dirName), "tool.cmd"), "ok", "two words"]);
+    expect(r.stderr).toBe("");
+    expect(JSON.parse(r.stdout)).toEqual(["ok", "two words"]);
+  });
+
+  it("prefers the .cmd over npm's extensionless shim for a dotted name", async () => {
+    const dir = installIn("bin", "my.tool");
+    writeFileSync(path.join(dir, "my.tool"), "#!/bin/sh\n");
+    const r = await run(["my.tool", "ok"], { env: { ...process.env, PATH: dir } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("ignores a directory with the command's name", async () => {
+    const dir = installIn("bin");
+    mkdirSync(path.join(dir, "shadow"));
+    mkdirSync(path.join(dir, "shadow", "tool.cmd"));
+    const r = await run(["tool", "ok"], { env: { ...process.env, PATH: `${path.join(dir, "shadow")};${dir}` } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("resolves a relative command against cwd", async () => {
+    const dir = installIn("sub");
+    const r = await run([".\\sub\\tool", "ok"], { cwd: path.dirname(dir) });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("accepts quoted PATH entries and any PATH casing", async () => {
+    const dir = installIn("with space");
+    const { PATH: _a, Path: _b, ...rest } = process.env;
+    const r = await run(["tool", "ok"], { env: { ...rest, path: `"${dir}"` } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+
+  it("falls back to the system shell when ComSpec is empty", async () => {
+    const r = await run([path.join(installIn("bin"), "tool.cmd"), "ok"], { env: { ...process.env, ComSpec: "", COMSPEC: "" } });
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
+});
 describe.runIf(WIN)("runShell on Windows", () => {
   it("runs a quoted executable path", async () => {
     const r = await runShell(`"${process.execPath}" -e "process.stdout.write('quoted-ok')"`);
