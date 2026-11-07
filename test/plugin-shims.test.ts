@@ -86,6 +86,9 @@ describe("plugin CLI resolver", () => {
     expect(() => spawnTarget({ argv: ["x.cmd"], shell: true }, ["a\nb"])).toThrow(/newline/);
     expect(spawnTarget({ argv: ["x"], shell: false }, ["a\nb"]).args).toEqual(["a\nb"]);
   });
+  it("caret-escapes a path with a percent sign, because quotes do not stop %VAR% expanding", () => {
+    expect(spawnTarget({ argv: ["C:\\%X%\\agent-flow.cmd"], shell: true }).cmd).toBe("C:\\^%X^%\\agent-flow.cmd");
+  });
   it("does not quote a bare .cmd name: cmd.exe resolves %~dp0 to the cwd for a quoted name found on PATH", () => {
     expect(spawnTarget({ argv: ["npx.cmd"], shell: true }).cmd).toBe("npx.cmd");
   });

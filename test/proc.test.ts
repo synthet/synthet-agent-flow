@@ -55,6 +55,13 @@ describe.runIf(WIN)("run with awkward batch paths", () => {
     expect(JSON.parse(r.stdout)).toEqual(["ok", "two words"]);
   });
 
+  it("does not expand a variable in the batch file's own path", async () => {
+    const dir = installIn("%AF_PROBE%");
+    const cwd = tempDir();
+    const r = await run([path.join(dir, "tool.cmd"), "ok"], { cwd, env: { ...process.env, AF_PROBE: 'x" & echo INJECTED> marker.txt & "' } });
+    expect(existsSync(path.join(cwd, "marker.txt"))).toBe(false);
+    expect(JSON.parse(r.stdout)).toEqual(["ok"]);
+  });
   it("prefers the .cmd over npm's extensionless shim for a dotted name", async () => {
     const dir = installIn("bin", "my.tool");
     writeFileSync(path.join(dir, "my.tool"), "#!/bin/sh\n");

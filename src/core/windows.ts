@@ -15,7 +15,9 @@ const caret = (s: string): string => s.replace(META, "^$1");
 
 /** A resolved path is quoted, so `=` and spaces stay in it. A bare name must not be: see spawnTarget in resolve.mjs. */
 export function escapeBatchCommand(file: string): string {
-  return /[\\/]/.test(file) ? `"${file}"` : caret(file); // real quotes: ^" would be a literal, and = would split the path
+  // Real quotes keep = in the path, where ^" would be a literal. But %VAR% still expands inside quotes, so a path
+  // with % takes the caret form. One with both % and = then fails to launch, which is the safe way to fail.
+  return /[\\/]/.test(file) && !file.includes("%") ? `"${file}"` : caret(file);
 }
 
 /** Quote for the C runtime: backslashes double only before a quote, including the closing one. */
