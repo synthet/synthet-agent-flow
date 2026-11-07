@@ -21,6 +21,7 @@
 | `mod/` | Claude Code mod (pane, band, status line) |
 | `integrations/synthet-code-framework/` | backlog-provider kit for framework projects |
 | `templates/` | PR body, CLAUDE.md block, Cursor rule, statusline snippet |
+| `tray/` + `scripts/*-tray.ps1` | Windows tray app (C# 5, built by the .NET Framework `csc.exe`) that runs `serve --exit-on-stdin-close` |
 
 ## Rules
 - **Every lifecycle rule lives in `FlowStore`.** Surfaces (CLI, MCP, REST, hooks) stay thin, and side effects (DoD, branch names) go in `service.ts`. Never re-implement a gate in a surface.

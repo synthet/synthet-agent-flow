@@ -23,8 +23,8 @@ register({
   aliases: ["dashboard", "ui"],
   group: "servers",
   summary: "Web Kanban dashboard + REST/SSE API on loopback (default http://127.0.0.1:8791)",
-  usage: "serve [--port 8791] [--host 127.0.0.1] [--open]",
-  options: { port: { type: "string", short: "p" }, host: { type: "string" }, open: { type: "boolean" } },
+  usage: "serve [--port 8791] [--host 127.0.0.1] [--open] [--exit-on-stdin-close]",
+  options: { port: { type: "string", short: "p" }, host: { type: "string" }, open: { type: "boolean" }, "exit-on-stdin-close": { type: "boolean" } },
   async run(ctx) {
     const { startServer } = await import("../../server/http.js");
     const { githubWebhookHandler } = await import("../../integrations/github.js");
@@ -44,9 +44,21 @@ register({
       void run([opener, server.url]);
     }
     await new Promise<void>((resolve) => {
-      const stop = () => void server.close().then(resolve);
+      let stopping = false;
+      const stop = () => {
+        if (stopping) return;
+        stopping = true;
+        void server.close().then(resolve);
+      };
       process.once("SIGINT", stop);
       process.once("SIGTERM", stop);
+      if (bool(ctx.values["exit-on-stdin-close"])) {
+        // For a supervisor such as the Windows tray, which has no signal to send a windowless child:
+        // closing stdin, or the parent dying, stops the server cleanly.
+        process.stdin.once("end", stop);
+        process.stdin.once("close", stop);
+        process.stdin.resume();
+      }
     });
   },
 });
