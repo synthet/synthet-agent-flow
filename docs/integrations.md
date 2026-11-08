@@ -56,6 +56,34 @@ agent-flow mailbox test
 - Bodies hold the ticket id, title, actor, reason, unblock condition, branch, project and event seq. Ticket specs are never included, and secrets are redacted.
 - Delivery goes through the outbox, with exponential backoff and at most 10 attempts. The CLI flushes it, bounded to 8 s per command. The MCP server flushes after tool calls, and the dashboard server flushes every 30 s. A broken mailbox never blocks a tracker write.
 
+## synthet-llm-wiki
+
+Finished tickets become **sources** in a [synthet-llm-wiki](https://github.com/synthet/llm-wiki) root, so the
+spec, the acceptance evidence and the handoff notes outlive the tracker and are searchable from every
+harness through `llmwiki-ro-core`. agent-flow writes the file and, optionally, runs `llmwiki ingest`.
+Compiling and reviewing claims stays in the wiki's own workflow.
+
+```bash
+agent-flow config set wiki.root '"D:/Projects/synthet-llm-wiki"'
+agent-flow config set wiki.enabled true            # export on approve and close
+agent-flow wiki export af-k3x9q                    # on demand, enabled or not
+agent-flow wiki export --done --no-ingest          # every done ticket, file only
+agent-flow wiki status
+```
+
+- **What is written.** `<root>/<outDir>/<repo>/<id>.md` (default `outDir` is `wiki/notes/agent-flow`):
+  OKF frontmatter (`type: Report`, ticket, repo, status), a field table (branch, PR, spec ref, scope),
+  the spec, the acceptance criteria with verdicts and evidence, every handoff, review and note, the
+  dependencies, and a timeline of lifecycle events. Text passes the same secret and home-path
+  redaction as mailbox and GitHub output. A re-export overwrites the file; the wiki keeps each ingest
+  as a new immutable revision.
+- **When.** With `wiki.enabled`, `ticket.approved` and `ticket.closed` enqueue an outbox job. The flush
+  writes the file and, with `wiki.ingest` (default on), runs `<wiki.bin> --root <root> ingest <file> --json`.
+  A failed ingest stays queued with backoff and its error in the outbox.
+- **Boundary.** The file must sit under one of the wiki's `allowed_roots` (`.llmwiki/config.yaml`
+  in the wiki repo); the default `outDir` is inside the wiki root, which is always allowed. The default
+  path is under `wiki/notes/`, the wiki's private notes checkout, because tickets can carry internal detail.
+
 ## synthet-agent-swarm
 
 ```bash

@@ -106,6 +106,7 @@ Hooks always exit 0 with `{}` on malformed input or internal errors (they fail o
   "github": { "enabled": false, "repo": null, "labelPrefix": "status:", "issueLabel": "agent-flow", "reconcileMinutes": 5, "webhookSecretEnv": "AGENT_FLOW_GITHUB_SECRET" },
   "mailbox": { "enabled": false, "bin": "agent-mail", "session": "agent-flow", "scope": null, "audience": "group", "notifyOn": ["claimed", "review", "rejected", "blocked", "needs_human", "done", "lease_expired"], "reviewPeer": null },
   "swarm": { "enabled": false, "path": null, "harnesses": [], "autoApproveOnMajority": false, "timeoutMs": 300000 },
+  "wiki": { "enabled": false, "root": null, "outDir": "wiki/notes/agent-flow", "ingest": true, "bin": "llmwiki" },
   "hooks": { "taskCompletedDod": false, "handoffOnStop": true, "heartbeatMinutes": 5 },
   "server": { "host": "127.0.0.1", "port": 8791 }
 }

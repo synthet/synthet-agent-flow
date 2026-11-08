@@ -93,6 +93,19 @@ export const configSchema = z.object({
       timeoutMs: z.number().int().min(1000).default(120000),
     })
     .prefault({}),
+  /**
+   * LLM Wiki export (synthet-llm-wiki). On approve/close the ticket is written as a markdown source
+   * under `<root>/<outDir>/<repo>/<id>.md` and, with `ingest`, passed to `llmwiki ingest`. Off by default.
+   */
+  wiki: z
+    .object({
+      enabled: z.boolean().default(false),
+      root: z.string().nullable().default(null),
+      outDir: z.string().default("wiki/notes/agent-flow"),
+      ingest: z.boolean().default(true),
+      bin: z.string().default("llmwiki"),
+    })
+    .prefault({}),
   hooks: z
     .object({
       /** Run DoD on Claude Code TaskCompleted (exit 2 blocks completion). Off by default: can be slow. */

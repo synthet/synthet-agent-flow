@@ -556,3 +556,84 @@ describe("install", () => {
     expect(readFileSync(path.join(project, ".agent", "backlog", "README.md"), "utf8")).toContain("agent-flow provider");
   });
 });
+
+describe("llm wiki export", () => {
+  function approved(ws: Workspace) {
+    const t = ws.store.create(
+      { title: "Add orders endpoint", body: "Return orders. token ghp_abcdefghijklmnopqrstuvwxyz123456 must not leak.", status: "ready", acceptance: ["returns 200", "rejects | bad input"] },
+      "human:pm",
+    );
+    ws.store.claim(t.id, "claude:a");
+    ws.store.transition(t.id, "start", "claude:a");
+    ws.store.comment(t.id, "handoff", "implemented GET /orders; tests in test/orders.test.ts", "claude:a");
+    ws.store.transition(t.id, "submit", "claude:a");
+    ws.store.verifyAcceptance(t.id, "AC-1", "Verified", "npm test: orders 200 ok", "codex:b");
+    ws.store.verifyAcceptance(t.id, "AC-2", "Verified", "npm test: 400 on bad page", "codex:b");
+    ws.store.comment(t.id, "review", "looks right", "codex:b");
+    ws.store.transition(t.id, "approve", "codex:b");
+    return t.id;
+  }
+
+  it("renders spec, AC evidence, handoff and review notes with secrets redacted", async () => {
+    const { ws } = repo();
+    const id = approved(ws);
+    const { renderTicketSource } = await import("../src/integrations/wiki.js");
+    const md = renderTicketSource(ws, ws.store.detail(id, { events: 200 }));
+    expect(md).toMatch(/^---\ntype: Report\n/);
+    expect(md).toContain(`ticket: ${id}`);
+    expect(md).toContain("| AC-1 | returns 200 | Verified | npm test: orders 200 ok |");
+    expect(md).toContain(String.raw`| AC-2 | rejects \| bad input | Verified |`);
+    expect(md).toContain("### handoff");
+    expect(md).toContain("implemented GET /orders");
+    expect(md).toContain("### review");
+    expect(md).toMatch(/\| .* \| approved \| codex:b \|/);
+    expect(md).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz123456");
+    ws.close();
+  });
+
+  it("enqueues on approve only when enabled, then writes the source and runs llmwiki ingest on flush", async () => {
+    const off = repo();
+    attachNotifiers(off.ws);
+    approved(off.ws);
+    expect(off.ws.store.dueOutbox().filter((j) => j.target === "wiki")).toHaveLength(0);
+    off.ws.close();
+
+    const wikiRoot = tempDir("af-wiki-");
+    const { ws } = repo({ wiki: { enabled: true, root: wikiRoot } } as never);
+    attachNotifiers(ws);
+    const id = approved(ws);
+    expect(ws.store.dueOutbox().filter((j) => j.target === "wiki")).toHaveLength(1);
+    const r = recorder(() => ok(JSON.stringify({ ok: true, result: { id: "job-1" } })));
+    expect(await flushOutbox(ws, { run: r.run })).toEqual({ sent: 1, failed: 0 });
+    const file = path.join(wikiRoot, "wiki", "notes", "agent-flow", path.basename(ws.paths.root), `${id}.md`);
+    expect(readFileSync(file, "utf8")).toContain("Add orders endpoint");
+    expect(r.calls).toHaveLength(1);
+    expect(r.calls[0]!.argv).toEqual(["llmwiki", "--root", path.resolve(ws.paths.root, wikiRoot), "ingest", file, "--json"]);
+    ws.close();
+  });
+
+  it("keeps a failed ingest queued with its error", async () => {
+    const { ws } = repo({ wiki: { enabled: true, root: tempDir("af-wiki-") } } as never);
+    attachNotifiers(ws);
+    approved(ws);
+    const r = recorder(() => fail("path is outside allowed_roots", 2));
+    expect((await flushOutbox(ws, { run: r.run })).failed).toBe(1);
+    expect((ws.store.db.prepare("SELECT last_error FROM outbox WHERE target = 'wiki'").get() as { last_error: string }).last_error).toContain("allowed_roots");
+    ws.close();
+  });
+
+  it("export works without wiki.enabled, needs a root, and --no-ingest skips llmwiki", async () => {
+    const { ws } = repo();
+    const id = approved(ws);
+    const { exportTicket, doneTicketIds } = await import("../src/integrations/wiki.js");
+    await expect(exportTicket(ws, id)).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    const root = tempDir("af-wiki-");
+    const r = recorder(() => ok("{}"));
+    const res = await exportTicket(ws, id, { root, ingest: false, run: r.run });
+    expect(res.ingested).toBe(false);
+    expect(r.calls).toHaveLength(0);
+    expect(existsSync(res.file)).toBe(true);
+    expect(doneTicketIds(ws)).toEqual([id]);
+    ws.close();
+  });
+});

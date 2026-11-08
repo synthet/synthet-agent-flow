@@ -4,11 +4,13 @@ import type { Workspace } from "../core/workspace.js";
 import { defaultRunner, type Runner } from "./exec.js";
 import { MailboxSession, jobForEvent, type MailboxJob } from "./mailbox.js";
 import type { McpOpener } from "./mcp-client.js";
+import { WIKI_EVENTS, exportTicket } from "./wiki.js";
 
 /**
  * Side effects of tracker events go through the outbox (retry with backoff, never blocking a write):
  * - `mailbox`: synthet-agent-mailbox notifications,
- * - `github`: status-label projection onto mirrored issues.
+ * - `github`: status-label projection onto mirrored issues,
+ * - `wiki`: approved/closed tickets exported to an LLM Wiki root as sources.
  */
 
 const STATUS_EVENTS = new Set([
@@ -30,7 +32,7 @@ const STATUS_EVENTS = new Set([
 ]);
 
 export function attachNotifiers(ws: Workspace): () => void {
-  if (!ws.config.mailbox.enabled && !ws.config.github.enabled) return () => undefined;
+  if (!ws.config.mailbox.enabled && !ws.config.github.enabled && !ws.config.wiki.enabled) return () => undefined;
   return ws.store.onEvent((e: FlowEvent) => {
     if (ws.config.mailbox.enabled && !e.actor.startsWith("system:mailbox")) {
       const job = jobForEvent(ws, e);
@@ -39,6 +41,9 @@ export function attachNotifiers(ws: Workspace): () => void {
     if (ws.config.github.enabled && e.ticket_id && STATUS_EVENTS.has(e.action) && e.actor !== "system:github") {
       const t = ws.store.exists(e.ticket_id) ? ws.store.get(e.ticket_id) : null;
       if (t?.github_issue) ws.store.enqueue("github", { op: "status", ticket_id: t.id });
+    }
+    if (ws.config.wiki.enabled && e.ticket_id && WIKI_EVENTS.has(e.action)) {
+      ws.store.enqueue("wiki", { ticket_id: e.ticket_id });
     }
   });
 }
@@ -68,6 +73,13 @@ export async function flushOutbox(ws: Workspace, opts: { budgetMs?: number; run?
         repo ??= await resolveRepo(ws, run);
         const id = String(job.payload.ticket_id);
         if (ws.store.exists(id)) await syncIssueState(ws, repo, ws.store.get(id), run);
+      } else if (job.target === "wiki") {
+        if (!ws.config.wiki.enabled) {
+          ws.store.outboxResult(job.id, true);
+          continue;
+        }
+        const id = String(job.payload.ticket_id);
+        if (ws.store.exists(id)) await exportTicket(ws, id, { run });
       }
       ws.store.outboxResult(job.id, true);
       sent++;
