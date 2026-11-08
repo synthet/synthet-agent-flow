@@ -99,4 +99,23 @@ describe("cli", () => {
     expect(r.created).toHaveLength(4);
     expect(r.epic.title).toBe("Orders pagination");
   });
+
+  it("wiki status and wiki export --done --no-ingest write a source per finished ticket", async () => {
+    const dir = repo();
+    expect((await af(dir, ["init"])).code).toBe(0);
+    const id = (await af(dir, ["create", "Ship docs", "--ready", "--ac", "docs ship", "--json"])).json().id as string;
+    await af(dir, ["claim", id], "claude:a");
+    await af(dir, ["note", id, "--handoff", "wrote the docs"], "claude:a");
+    expect((await af(dir, ["submit", id], "claude:a")).code).toBe(0);
+    await af(dir, ["ac", "verify", id, "AC-1", "Verified", "--evidence", "docs/x.md exists"], "codex:b");
+    expect((await af(dir, ["approve", id], "codex:b")).code).toBe(0);
+    expect((await af(dir, ["wiki", "status", "--json"])).json().config.enabled).toBe(false);
+    expect((await af(dir, ["wiki", "export", "--done"])).code).not.toBe(0); // no wiki.root
+    const root = tempDir("af-cli-wiki-");
+    const res = await af(dir, ["wiki", "export", "--done", "--root", root, "--no-ingest", "--json"]);
+    expect(res.code).toBe(0);
+    const [row] = res.json() as Array<{ id: string; file: string; ingested: boolean }>;
+    expect(row).toMatchObject({ id, ingested: false });
+    expect(row!.file.startsWith(root)).toBe(true);
+  });
 });

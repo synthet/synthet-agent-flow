@@ -160,6 +160,32 @@ register({
 });
 
 register({
+  name: "wiki",
+  group: "integrations",
+  summary: "Export finished tickets to synthet-llm-wiki as sources: export <id>… | export --done | status",
+  usage: "wiki export <id>... [--root dir] [--no-ingest] | wiki export --done [--root dir] [--no-ingest] | wiki status",
+  options: { root: { type: "string" }, done: { type: "boolean" }, "no-ingest": { type: "boolean" } },
+  async run(ctx) {
+    const ws = ctx.ws();
+    const [sub = "status", ...ids] = ctx.positionals;
+    if (sub === "status") {
+      const out = { config: ws.config.wiki, outbox: ws.store.outboxStats() };
+      return ctx.print(out, () => JSON.stringify({ ...ws.config.wiki, outbox: out.outbox }, null, 2));
+    }
+    if (sub === "export") {
+      const { doneTicketIds, exportTicket } = await import("../../integrations/wiki.js");
+      const targets = bool(ctx.values.done) ? doneTicketIds(ws) : ids;
+      if (!targets.length) throw new FlowError("INVALID_ARGUMENT", "usage: wiki export <id>... | wiki export --done");
+      const ingest = bool(ctx.values["no-ingest"]) ? false : undefined;
+      const results: Awaited<ReturnType<typeof exportTicket>>[] = [];
+      for (const id of targets) results.push(await exportTicket(ws, id, { root: str(ctx.values.root), ingest }));
+      return ctx.print(results, () => results.map((r) => `${r.id} → ${r.file}${r.ingested ? " (ingested)" : ""}`).join("\n"));
+    }
+    throw new FlowError("INVALID_ARGUMENT", "usage: wiki export|status");
+  },
+});
+
+register({
   name: "review",
   group: "integrations",
   summary: "Review a ticket in review: multi-harness via synthet-agent-swarm (--swarm), or advisory Jev evidence check (--jev); recorded as a review comment",

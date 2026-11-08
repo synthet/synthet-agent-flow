@@ -24,6 +24,8 @@ describe("config defaults", () => {
     expect(parse({ wip: { perAgent: 3 } }).wip).toEqual({ perAgent: 3, columns: { in_progress: 4, review: 6 } });
     expect(parse({ mailbox: { enabled: true } }).mailbox).toMatchObject({ enabled: true, bin: "agent-mail", audience: "group" });
     expect(parse({ server: { port: 9000 } }).server).toEqual({ host: "127.0.0.1", port: 9000 });
+    expect(defaultConfig().wiki).toEqual({ enabled: false, root: null, outDir: "wiki/notes/agent-flow", ingest: true, bin: "llmwiki" });
+    expect(parse({ wiki: { enabled: true, root: "D:/wiki" } }).wiki).toMatchObject({ enabled: true, root: "D:/wiki", ingest: true });
   });
 
   it("does not share default objects between configs", () => {
