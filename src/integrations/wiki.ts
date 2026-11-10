@@ -116,7 +116,7 @@ function wikiRoot(ws: Workspace, override?: string): string {
   const root = override ?? ws.config.wiki.root;
   if (!root) {
     throw new FlowError("INVALID_ARGUMENT", "wiki.root is not set", {
-      nextSteps: ["agent-flow config set wiki.root '\"D:/Projects/synthet-llm-wiki\"'", "or pass --root <wiki root>"],
+      nextSteps: ["agent-flow config set wiki.root '\"../synthet-llm-wiki\"'", "or pass --root <wiki root>"],
     });
   }
   return path.resolve(ws.paths.root, root);

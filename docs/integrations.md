@@ -64,7 +64,7 @@ harness through `llmwiki-ro-core`. agent-flow writes the file and, optionally, r
 Compiling and reviewing claims stays in the wiki's own workflow.
 
 ```bash
-agent-flow config set wiki.root '"D:/Projects/synthet-llm-wiki"'
+agent-flow config set wiki.root '"../synthet-llm-wiki"'
 agent-flow config set wiki.enabled true            # export on approve and close
 agent-flow wiki export af-k3x9q                    # on demand, enabled or not
 agent-flow wiki export --done --no-ingest          # every done ticket, file only
