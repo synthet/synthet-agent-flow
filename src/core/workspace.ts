@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } fr
 import path from "node:path";
 import { defaultConfig, loadConfig, saveConfig, type FlowConfig } from "./config.js";
 import { FlowError } from "./errors.js";
-import { flowPaths, resolveRoot, type FlowPaths } from "./paths.js";
+import { flowPaths, git, resolveRoot, type FlowPaths } from "./paths.js";
 import { FlowStore } from "./store.js";
 
 export interface Workspace {
@@ -35,12 +35,23 @@ export function openWorkspace(cwd: string = process.cwd(), opts: { requireInit?:
   return { paths, config, store, close: () => store.close() };
 }
 
+/**
+ * The repo's default branch: `origin/HEAD` when the remote set it, else an existing local `main` or `master`, else `main`.
+ * The pre-tool push guard, worktree bases and PR bases all read it, so a wrong guess leaves `master` unguarded.
+ */
+export function detectDefaultBranch(root: string): string {
+  const remote = git(root, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]);
+  if (remote) return remote.replace(/^origin\//, "");
+  for (const b of ["main", "master"]) if (git(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${b}`])) return b;
+  return "main";
+}
+
 export function initWorkspace(cwd: string, overrides: Partial<FlowConfig> = {}): { paths: FlowPaths; created: boolean } {
   const root = resolveRoot(cwd);
   const paths = flowPaths(root);
   const created = !existsSync(paths.config);
   mkdirSync(paths.dir, { recursive: true });
-  if (created) saveConfig(paths.config, defaultConfig(overrides));
+  if (created) saveConfig(paths.config, defaultConfig({ defaultBranch: detectDefaultBranch(root), ...overrides }));
   const gi = path.join(paths.dir, ".gitignore");
   if (!existsSync(gi)) {
     writeFileSync(
