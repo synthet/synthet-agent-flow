@@ -16,7 +16,7 @@ export interface FlowPaths {
   serveFile: string;
 }
 
-function git(cwd: string, args: string[]): string | null {
+export function git(cwd: string, args: string[]): string | null {
   try {
     return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch {
