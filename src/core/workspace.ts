@@ -45,7 +45,19 @@ export function initWorkspace(cwd: string, overrides: Partial<FlowConfig> = {}):
   if (!existsSync(gi)) {
     writeFileSync(
       gi,
-      ["# agent-flow local state (the committed record is tickets.jsonl + config.json)", "flow.db", "flow.db-*", "serve.json", "loop.json", "STOP", "*.tmp", ""].join("\n"),
+      [
+        "# agent-flow local state (the committed record is tickets.jsonl + config.json)",
+        "flow.db",
+        "flow.db-*",
+        "serve.json",
+        "loop.json",
+        "STOP",
+        "*.tmp",
+        "# Keep the committed record visible even when a root .gitignore ignores config.json or *.jsonl.",
+        "!config.json",
+        "!tickets.jsonl",
+        "",
+      ].join("\n"),
     );
   }
   // Union merges keep the line-per-ticket snapshot readable, and eol=lf matches what the snapshot writer emits, so autocrlf checkouts stay clean.
