@@ -41,7 +41,7 @@ agent-flow statuses are exactly the logical states in [README](../README.md):
 
 ## Five-step contract
 
-1. **Pick.** `agent-flow ready [--label agent-ok]`. An empty queue means stop and ask; don't invent work.
+1. **Pick.** `agent-flow ready [--label agent-ok]`. With an empty queue, don't pick work on your own. When the user asks for work, file it first (`agent-flow create "<title>" --ready --ac "<result>"`, or `flow-plan` for a feature), then claim it.
 2. **Claim.** `agent-flow claim <id>` or `agent-flow claim --next`. This records the owner and a lease.
    - `CLAIM_CONFLICT` means another agent won; pick again.
 3. **Start.** The first commit moves the item to `in_progress` (the hook does this). Otherwise run `agent-flow start <id>`.

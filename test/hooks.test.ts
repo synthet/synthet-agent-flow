@@ -44,6 +44,18 @@ describe("hooks", () => {
     expect(readFileSync(envFile, "utf8")).toBe(`export AGENT_FLOW_ACTOR=${ACTOR}\n`);
   });
 
+  it("session-start with an empty queue says to file the user's request as a ticket, not to stop", async () => {
+    const { dir } = repo();
+    const out = JSON.parse((await hook("session-start", { cwd: dir, session_id: SID, source: "startup" })).stdout);
+    const ctx = out.hookSpecificOutput.additionalContext as string;
+    expect(ctx).toContain("## Ready queue (0)");
+    expect(ctx).toContain("Don't pick work on your own");
+    expect(ctx).toContain("When the user asks for work, file it first");
+    expect(ctx).toContain('agent-flow create "<title>" --ready --ac "<result>"');
+    expect(ctx).toContain("flow-plan");
+    expect(ctx).not.toContain("do not invent work");
+  });
+
   it("session-start binds the ticket from the branch and shows spec + AC + handoff", async () => {
     const { dir, git } = repo();
     const ws = openWorkspace(dir);

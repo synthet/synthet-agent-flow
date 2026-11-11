@@ -11,7 +11,8 @@ backlog → ready → claimed → in_progress → review → done   (+ blocked, 
 - Epics roll up automatically from their children; never claim an epic.
 
 ## Five-step loop (synthet-code-framework backlog contract)
-1. **Pick** — \`flow_ready\` (or \`agent-flow ready\`). Empty queue → stop and ask; do not invent work.
+1. **Pick** — \`flow_ready\` (or \`agent-flow ready\`). Empty queue → don't pick work on your own. When the user asks for work, file it first
+   (\`flow_create {title, acceptance, ready:true}\` for a bug or chore, or the \`flow-plan\` skill for a feature), then claim it.
 2. **Claim** — \`flow_claim {next:true}\` or \`{id}\`. Work on the returned \`branch\` (one branch/worktree per ticket).
 3. **Start** — \`flow_transition {action:"start"}\` (the PostToolUse hook does this on your first commit).
 4. **Block** — \`flow_transition {action:"block", reason, unblock_condition}\` the moment progress stops.
