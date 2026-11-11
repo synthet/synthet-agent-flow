@@ -447,6 +447,8 @@ export function applyPlan(store: FlowStore, plan: ImportPlan, actor: string, opt
   const relative = path.relative(opts.root ?? process.cwd(), path.resolve(plan.source)).replace(/\\/g, "/");
   // Inside the repo: a portable relative path. Outside: the absolute path (no ../../.. chains).
   const rel = relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : path.resolve(plan.source).replace(/\\/g, "/");
+  // Parsers write `plan.source` (often an absolute path from the CLI) into bodies; keep them as portable as spec_ref.
+  const portable = (body: string | undefined) => (body === undefined || !plan.source ? body : body.split(plan.source).join(rel));
   if (opts.dryRun) return { epic: null, created: [], existing: [], warnings: plan.warnings, plan };
   return store.tx(() => {
     let epic: Ticket | null = null;
@@ -456,7 +458,7 @@ export function applyPlan(store: FlowStore, plan: ImportPlan, actor: string, opt
         {
           title: opts.epicTitle ?? plan.epic.title,
           type: "epic",
-          body: plan.epic.body ?? "",
+          body: portable(plan.epic.body) ?? "",
           spec_ref: rel,
           acceptance: plan.epic.acceptance,
           external_key: `${rel}#epic`,
@@ -474,7 +476,7 @@ export function applyPlan(store: FlowStore, plan: ImportPlan, actor: string, opt
       const ticket = store.create(
         {
           title: t.title,
-          body: t.body,
+          body: portable(t.body),
           type: t.type,
           priority: t.priority,
           labels: [...(t.labels ?? []), ...(opts.labels ?? [])],
