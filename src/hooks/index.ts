@@ -162,6 +162,8 @@ function preTool(ws: Workspace, input: HookInput, env: NodeJS.ProcessEnv): HookR
   for (const d of DANGEROUS) if (d.re.test(command)) return deny(d.why);
   const def = ws.config.defaultBranch;
   const cwd = input.cwd ?? process.cwd();
+  // Remember HEAD before a commit, so post-tool can tell a real commit from a failed one.
+  if (GIT_COMMIT_RE.test(command)) ws.store.setKv(preHeadKey(input), gitHead(cwd) ?? "");
   if (/\bgit\s+push\b/.test(command)) {
     const explicit = new RegExp(`\\bgit\\s+push\\b[^|;&]*\\s(\\S+:)?(refs/heads/)?${def}(\\s|$)`).test(command);
     const onDefault = currentBranch(cwd) === def && !/\s[\w/.-]+:[\w/.-]+/.test(command) && !/--set-upstream|-u\s/.test(command);
@@ -205,21 +207,55 @@ function canonicalPath(p: string): string {
   }
 }
 
+const GIT_COMMIT_RE = /\bgit\s+commit\b/;
+const GH_PR_CREATE_RE = /\bgh\s+pr\s+create\b/;
+
+const preHeadKey = (input: HookInput) => `prehead:${input.session_id ?? "session"}`;
+
+function gitHead(cwd: string): string | null {
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Advisory reminder (never a decision) when an agent commits or opens a PR in a tracked repo while holding no ticket. */
+function untrackedNudge(ws: Workspace, input: HookInput, cwd: string, actor: string, command: string): HookResult {
+  if (!ws.config.hooks.untrackedNudge || input.tool_name !== "Bash") return SILENT;
+  const held = ws.store.list({ owner: actor, status: ["claimed", "in_progress"] });
+  if (held.length) return SILENT;
+  let trigger = GH_PR_CREATE_RE.test(command);
+  if (!trigger && GIT_COMMIT_RE.test(command) && !isInterrupted(input.tool_response)) {
+    // Bash tool_response has no exit code: a real commit is one where HEAD moved since pre-tool recorded it.
+    const before = ws.store.getKv(preHeadKey(input));
+    const head = gitHead(cwd);
+    trigger = before !== null && !!head && head !== before;
+  }
+  if (!trigger) return SILENT;
+  const once = `nudge:untracked:${input.session_id ?? actor}`;
+  if (ws.store.getKv(once)) return SILENT;
+  ws.store.setKv(once, new Date().toISOString());
+  return json({
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext:
+        "agent-flow: this repo is tracked but you hold no ticket. Create or claim one " +
+        '(`agent-flow create "<title>" --ready --ac "<result>"`, then `agent-flow claim <id>`), and put `Refs <id>` in the PR body.',
+    },
+  });
+}
+
 function postTool(ws: Workspace, input: HookInput, env: NodeJS.ProcessEnv): HookResult {
   const cwd = input.cwd ?? process.cwd();
   const actor = hookActor(input, env);
-  const t = boundTicket(ws, cwd, actor);
-  if (!t || t.owner !== actor) return SILENT;
-  const notes: string[] = [];
   const command = String((input.tool_input as { command?: unknown } | undefined)?.command ?? "");
-  if (input.tool_name === "Bash" && /\bgit\s+commit\b/.test(command)) {
+  const t = boundTicket(ws, cwd, actor);
+  if (!t || t.owner !== actor) return untrackedNudge(ws, input, cwd, actor, command);
+  const notes: string[] = [];
+  if (input.tool_name === "Bash" && GIT_COMMIT_RE.test(command)) {
     // Bash tool_response has no exit code, so detect a real commit by HEAD moving.
-    let head: string | null = null;
-    try {
-      head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch {
-      head = null;
-    }
+    const head = gitHead(cwd);
     const headKey = `head:${t.id}`;
     const before = ws.store.getKv(headKey);
     if (head && head !== before && !isInterrupted(input.tool_response)) {

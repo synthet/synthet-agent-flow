@@ -35,6 +35,19 @@ describe("framework /tasks importer", () => {
     expect(store.list({ epic: first.epic!.id })).toHaveLength(4);
     expect(store.get(first.created[0].id).spec_ref).toBe("framework/tasks.md#T-1");
   });
+
+  it("names the source repo-relative in ticket and epic bodies, never the absolute path", () => {
+    const { store } = makeStore();
+    const abs = path.resolve(fx("framework/tasks.md")); // the CLI resolves the file to an absolute path
+    const plan = buildPlan(abs, "framework", { specFile: fx("framework/spec.md") });
+    const res = applyPlan(store, plan, H, { root: fx("") });
+    const bodies = [res.epic!, ...res.created].map((t) => store.get(t.id).body);
+    for (const body of bodies) {
+      expect(body).toContain("framework/tasks.md");
+      expect(body).not.toContain(path.dirname(abs));
+    }
+    expect(store.get(res.created[0].id).body).toContain("Imported from framework/tasks.md (T-1)");
+  });
 });
 
 describe("Spec Kit importer", () => {

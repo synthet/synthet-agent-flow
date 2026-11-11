@@ -24,7 +24,12 @@ export function primeContext(
   }
   const ready = store.ready({ limit: 8, label: opts.label ?? undefined });
   lines.push("", `## Ready queue (${ready.length}${ready.length === 8 ? "+" : ""})`);
-  if (ready.length === 0) lines.push("_empty — do not invent work; ask the maintainer to promote tickets._");
+  if (ready.length === 0) {
+    lines.push(
+      "_Empty._ Don't pick work on your own. When the user asks for work, file it first: " +
+        '`agent-flow create "<title>" --ready --ac "<result>"` for a bug or chore, or follow `flow-plan` for a feature. Then claim it.',
+    );
+  }
   for (const t of ready) lines.push(`- ${t.id} [${t.priority}/${t.lane}] ${t.title}${t.labels.length ? ` {${t.labels.join(", ")}}` : ""}`);
   lines.push(
     "",

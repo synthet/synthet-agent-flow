@@ -76,7 +76,10 @@ describe("mcp server", () => {
     expect(tools.tools.find((t) => t.name === "flow_cancel")!.annotations?.destructiveHint).toBe(true);
     expect(tools.tools.find((t) => t.name === "flow_review_jev")!.annotations?.openWorldHint).toBe(true);
     const res = await client.readResource({ uri: "flow://workflow/overview" });
-    expect((res.contents[0] as { text: string }).text).toContain("Five-step loop");
+    const overview = (res.contents[0] as { text: string }).text;
+    expect(overview).toContain("Five-step loop");
+    expect(overview).toContain("When the user asks for work, file it first");
+    expect(overview).not.toContain("do not invent work");
   });
 
   it("flow_review_jev explains how to configure Jev, and dry-runs without starting it", async () => {
