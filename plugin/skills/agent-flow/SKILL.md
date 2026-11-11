@@ -22,7 +22,9 @@ Your actor id looks like `claude:1a2b3c4d`. If the hooks are installed they inje
 1. **The tracker is the source of truth.** Never keep work in TODO.md files, checklists in chat, or code comments.
    - Use Claude Code's own task list only for steps *inside* one ticket.
 2. **Pull, don't invent.** Take work from the ready queue (`agent-flow ready`).
-   - If it is empty, stop and ask the maintainer to promote or create tickets.
+   - When the user asks for work that has no ticket, file it first (`agent-flow create "<title>" --ready --ac "<result>"`, or
+     `flow-plan` for a feature), then claim it. Don't work untracked.
+   - If the queue is empty and the user asked for nothing specific, stop and ask the maintainer to promote or create tickets.
 3. **Claim before touching code.**
    - Claim with `agent-flow claim <id>` or `claim --next`. The claim is atomic and leased.
    - `CLAIM_CONFLICT` means someone else won; pick again.

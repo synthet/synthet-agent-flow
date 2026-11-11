@@ -160,6 +160,21 @@ register({
 });
 
 register({
+  name: "adoption",
+  group: "tickets",
+  summary: "Cross-repo report: tickets created/claimed/done vs commits per tracked repo; flags commits with no tickets",
+  usage: "adoption [--root dir] [--since 30d|2w|12h|date]",
+  options: { root: { type: "string" }, since: { type: "string" } },
+  async run(ctx) {
+    const { adoptionReport, parseSince, renderAdoption } = await import("../../integrations/adoption.js");
+    const since = str(ctx.values.since) ?? "30d";
+    const root = path.resolve(str(ctx.values.root) ?? path.dirname(resolveRoot(ctx.cwd)));
+    const rows = await adoptionReport({ root, sinceMs: parseSince(since) });
+    return ctx.print(rows, () => renderAdoption(rows, since));
+  },
+});
+
+register({
   name: "wiki",
   group: "integrations",
   summary: "Export finished tickets to synthet-llm-wiki as sources: export <id>… | export --done | status",

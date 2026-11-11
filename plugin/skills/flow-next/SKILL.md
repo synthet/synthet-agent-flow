@@ -17,7 +17,9 @@ Arguments: `$ARGUMENTS`, either a ticket id or filters like `--label agent-ok --
 1. **Check what you already hold.** Run `agent-flow list --mine --status claimed,in_progress`.
    If you hold a ticket, resume it with `flow-work` instead of claiming another.
 2. **Look at the queue.** Run `agent-flow ready $ARGUMENTS`.
-   - Empty → stop and report "ready queue empty". Do not invent work.
+   - Empty → don't pick work on your own. If the user asked for specific work, file it first
+     (`agent-flow create "<title>" --ready --ac "<result>"` for a bug or chore, or `flow-plan` for a feature), then claim that ticket.
+     Otherwise stop and report "ready queue empty".
    - Prefer the head of the queue unless the user named a ticket. The queue is already ordered: expedite lane, then priority, then age.
 3. **Claim it atomically.** Run `agent-flow claim <id> --json`, or `agent-flow claim --next $ARGUMENTS --json`.
    - `CLAIM_CONFLICT` → run `ready` again and pick the next one.

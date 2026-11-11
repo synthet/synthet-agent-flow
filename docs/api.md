@@ -15,7 +15,7 @@ Codes are `NOT_FOUND`, `INVALID_ARGUMENT`, `INVALID_TRANSITION`, `CLAIM_CONFLICT
 | Group | Commands |
 |---|---|
 | setup | `init [--prefix af] [--dod cmd]… [--no-review]` · `where` · `config get\|set` · `install` · `uninstall` |
-| tickets | `create <title> [--ready] [--type] [-p p0-p3] [--lane] [-l label]… [--scope path]… [--ac text]… [--parent epic] [--dep id]… [--discovered-from id] [--body\|--body-file]` · `edit <id> …` · `show [<id>]` · `list [--status s,s] [--mine] [--label] [--epic] [-q]` · `ready [--label] [--epic] [--skills a,b]` · `board` · `tree [<epic>]` · `log [<id>] [--since seq]` · `stats` |
+| tickets | `create <title> [--ready] [--type] [-p p0-p3] [--lane] [-l label]… [--scope path]… [--ac text]… [--parent epic] [--dep id]… [--discovered-from id] [--body\|--body-file]` · `edit <id> …` · `show [<id>]` · `list [--status s,s] [--mine] [--label] [--epic] [-q]` · `ready [--label] [--epic] [--skills a,b]` · `board` · `tree [<epic>]` · `log [<id>] [--since seq]` · `stats` · `adoption [--root dir] [--since 30d]` (cross-repo: commits by the repo user vs tickets; flags commits with no tickets) |
 | AC / deps / notes | `ac add <id> <text>` · `ac verify <id> AC-n --verdict Verified\|Failed\|Unknown --evidence …` · `ac list <id>` · `dep add\|rm <id> <on> [--kind blocks\|parent\|discovered-from]` · `comment <id> <text> [--kind]` · `note [<id>] <text> [--handoff] [--file -]` |
 | lifecycle | `claim [<id>\|--next] [--label] [--lease min]` · `heartbeat` · `start` · `release [--reason]` · `block --reason --until` · `unblock` · `submit [--skip-dod]` · `approve` · `reject --reason` · `close` · `reopen --reason` · `cancel` · `promote <id>…` · `demote` |
 | agents | `prime [--ticket] [--branch]` · `branch <id>` · `dod` · `agent register --harness --skills` · `agent list` · `worktree create\|rm\|path <id>` · `hook <event>` · `statusline` · `snapshot [--session id]` |
@@ -85,7 +85,7 @@ HTTP statuses: 400 invalid, 401 unauthorised, 403 not owner, 404 not found, 409 
 |---|---|---|
 | `session-start` | `session_id, cwd, source, transcript_path` | `hookSpecificOutput.additionalContext` (ticket or queue, plus actor id); appends `export AGENT_FLOW_ACTOR=…` to `$CLAUDE_ENV_FILE` |
 | `pre-tool` | `tool_name=Bash, tool_input.command` | `permissionDecision: "deny"` + reason, or `{}` |
-| `post-tool` | `tool_name, tool_input, tool_response` | `additionalContext` when the first commit starts the ticket |
+| `post-tool` | `tool_name, tool_input, tool_response` | `additionalContext` when the first commit starts the ticket, or once per session when a real commit or `gh pr create` happens while you hold no ticket (`hooks.untrackedNudge`) |
 | `stop` | `stop_hook_active` | `{decision: "block", reason}` while the loop has work, or a single handoff nudge |
 | `stop-failure` | `error` | halts the loop |
 | `task-completed` | — | exit 2 + stderr when the DoD fails (needs `hooks.taskCompletedDod`) |
@@ -107,7 +107,7 @@ Hooks always exit 0 with `{}` on malformed input or internal errors (they fail o
   "mailbox": { "enabled": false, "bin": "agent-mail", "session": "agent-flow", "scope": null, "audience": "group", "notifyOn": ["claimed", "review", "rejected", "blocked", "needs_human", "done", "lease_expired"], "reviewPeer": null },
   "swarm": { "enabled": false, "path": null, "harnesses": [], "autoApproveOnMajority": false, "timeoutMs": 300000 },
   "wiki": { "enabled": false, "root": null, "outDir": "wiki/notes/agent-flow", "ingest": true, "bin": "llmwiki" },
-  "hooks": { "taskCompletedDod": false, "handoffOnStop": true, "heartbeatMinutes": 5 },
+  "hooks": { "taskCompletedDod": false, "handoffOnStop": true, "untrackedNudge": true, "heartbeatMinutes": 5 },
   "server": { "host": "127.0.0.1", "port": 8791 }
 }
 ```

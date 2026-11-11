@@ -86,7 +86,7 @@ backlog ─promote─▶ ready ─claim─▶ claimed ─first commit─▶ in_p
 |---|---|
 | `SessionStart` hook | Injects the ticket bound to your branch (`af/<id>-…`): spec, AC, last handoff, last review. With no bound ticket it injects the ready queue. Exports your actor id through `CLAUDE_ENV_FILE`. Re-runs after compaction. |
 | `PreToolUse` (Bash) | Denies force-push, pushes to the default branch, `rm -r` outside the worktree, and a second claim beyond your WIP limit. It never returns `allow`. |
-| `PostToolUse` | On the first real commit, moves the ticket from `claimed` to `in_progress`. Sends heartbeats and records the commit in the session row. |
+| `PostToolUse` | On the first real commit, moves the ticket from `claimed` to `in_progress`. Sends heartbeats and records the commit in the session row. If you commit or run `gh pr create` while holding no ticket, it reminds you once per session to create or claim one (`hooks.untrackedNudge`, on by default). |
 | `Stop` | Loop controller: keeps going while labelled ready work remains. Honours `stop_hook_active`, the ticket cap, the `.agent-flow/STOP` file and no-progress detection. Outside a loop it nudges once for a missing handoff. |
 | `StopFailure` / `PreCompact` / `SessionEnd` / `TaskCompleted` | `StopFailure` halts the loop on API errors. `PreCompact` and `SessionEnd` record transcript pointers (and flag a missing handoff). `TaskCompleted` is an optional DoD gate. |
 | Skills | `/agent-flow:flow-next`, `flow-work`, `flow-complete`, `flow-review`, `flow-plan`, `flow-loop`, `flow-land`, `flow-status`, plus the model-invoked `agent-flow` rules skill. |
