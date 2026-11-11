@@ -142,6 +142,49 @@ describe("hooks", () => {
     expect((await hook("post-tool", { cwd: dir, session_id: SID, tool_name: "Bash", tool_input: { command: "git commit -m again" } })).stdout).toBe("{}");
   });
 
+  it("post-tool reminds once per session when committing or opening a PR without a ticket", async () => {
+    const { dir, git } = repo();
+    const bash = (event: string, command: string, sid = SID) =>
+      hook(event, { cwd: dir, session_id: sid, tool_name: "Bash", tool_input: { command }, tool_response: { interrupted: false } });
+    const commit = async (file: string, sid = SID) => {
+      await bash("pre-tool", `git commit -m ${file}`, sid);
+      writeFileSync(path.join(dir, file), "x");
+      git("add", file);
+      git("commit", "-q", "-m", file);
+      return JSON.parse((await bash("post-tool", `git commit -m ${file}`, sid)).stdout);
+    };
+    const first = await commit("a.txt");
+    expect(first.hookSpecificOutput.hookEventName).toBe("PostToolUse");
+    expect(first.hookSpecificOutput.additionalContext).toContain("you hold no ticket");
+    expect(first.hookSpecificOutput.additionalContext).toContain("Refs <id>");
+    expect(first.hookSpecificOutput.permissionDecision).toBeUndefined();
+    // Once per session: a second untracked commit stays silent.
+    expect(await commit("b.txt")).toEqual({});
+    // A commit that didn't happen (HEAD unchanged) never nudges.
+    await bash("pre-tool", "git commit -m nothing", "other-session-1");
+    expect((await bash("post-tool", "git commit -m nothing", "other-session-1")).stdout).toBe("{}");
+    // Opening a PR nudges in a new session; unrelated commands don't.
+    expect((await bash("post-tool", "ls -la", "other-session-2")).stdout).toBe("{}");
+    const pr = JSON.parse((await bash("post-tool", "gh pr create --fill", "other-session-2")).stdout);
+    expect(pr.hookSpecificOutput.additionalContext).toContain("you hold no ticket");
+  });
+
+  it("post-tool stays silent about untracked work when the actor holds a ticket or the nudge is off", async () => {
+    const held = repo();
+    const ws = openWorkspace(held.dir);
+    const t = ws.store.create({ title: "Held", status: "ready" }, "human:x");
+    const c = claimTicket(ws, t.id, ACTOR);
+    ws.close();
+    held.git("switch", "-q", "-c", c.branch!);
+    const pr = (await hook("post-tool", { cwd: held.dir, session_id: SID, tool_name: "Bash", tool_input: { command: "gh pr create --fill" } })).stdout;
+    expect(pr).not.toContain("you hold no ticket");
+
+    const dir = tempDir("af-hook-off-");
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    initWorkspace(dir, { hooks: { untrackedNudge: false } } as never);
+    expect((await hook("post-tool", { cwd: dir, session_id: SID, tool_name: "Bash", tool_input: { command: "gh pr create --fill" } })).stdout).toBe("{}");
+  });
+
   it("stop nudges once for a missing handoff and honours stop_hook_active", async () => {
     const { dir } = repo();
     const ws = openWorkspace(dir);
