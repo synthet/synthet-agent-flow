@@ -112,6 +112,8 @@ export const configSchema = z.object({
       taskCompletedDod: z.boolean().default(false),
       /** Nudge once on Stop when leaving an owned ticket without a handoff note. */
       handoffOnStop: z.boolean().default(true),
+      /** Remind once per session when committing or opening a PR while holding no ticket. Advisory only. */
+      untrackedNudge: z.boolean().default(true),
       heartbeatMinutes: z.number().int().min(1).default(5),
     })
     .prefault({}),

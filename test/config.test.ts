@@ -16,7 +16,7 @@ describe("config defaults", () => {
     expect(c.mailbox.notifyOn).toEqual(["claimed", "review", "rejected", "blocked", "needs_human", "done", "lease_expired"]);
     expect(c.swarm).toEqual({ enabled: false, path: null, harnesses: [], autoApproveOnMajority: false, timeoutMs: 300000 });
     expect(c.jev).toEqual({ path: null, model: null, onSubmit: false, timeoutMs: 120000 });
-    expect(c.hooks).toEqual({ taskCompletedDod: false, handoffOnStop: true, heartbeatMinutes: 5 });
+    expect(c.hooks).toEqual({ taskCompletedDod: false, handoffOnStop: true, untrackedNudge: true, heartbeatMinutes: 5 });
     expect(c.server).toEqual({ host: "127.0.0.1", port: 8791 });
   });
 
