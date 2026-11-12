@@ -36,8 +36,14 @@ In your project:
 agent-flow init --dod "npm test"          # .agent-flow/{config.json,tickets.jsonl}, .gitattributes
 agent-flow create "Add GET /api/orders with pagination" --ready -p p1 \
   --scope src/routes/orders.ts --ac "returns 20 orders per page" --ac "invalid params return 400"
-agent-flow serve                           # dashboard on http://127.0.0.1:8791
+agent-flow serve                           # one dashboard for every project on http://127.0.0.1:8791
 ```
+
+### One dashboard for every project
+
+Each project keeps its own `.agent-flow/` database and its own MCP server. A user-level registry, `~/.agent-flow/workspaces.json`, lists them, and one `agent-flow serve` shows them all from one port. `init` and the MCP server register their project, so the list fills itself as agents work. To add existing checkouts at once, run `agent-flow workspaces scan ~/projects`. Use `agent-flow workspaces list|add|remove` to manage it by hand.
+
+The dashboard opens on **Projects**: every project with its ready, in-flight, review and blocked counts, plus cross-project lists of tickets waiting for review and tickets in flight. Pick a project to get its Board, Review, Activity, Agents, Epics and Stats tabs. Links look like `#/<project>/<view>`. `serve` also runs outside a project, as long as the registry lists at least one. `AGENT_FLOW_REGISTRY` points at another registry file; set it to `off` to disable the registry.
 
 Then wire up your agent harness. Pick one:
 

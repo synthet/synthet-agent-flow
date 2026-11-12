@@ -65,7 +65,8 @@ The chain starts from a zero genesis hash. SQLite triggers reject `UPDATE` and `
   - The server binds to loopback.
   - It rejects any non-loopback `Host` header with 421, which guards against DNS rebinding.
   - It sends a strict CSP (`script-src 'self'`, no inline script or style). Every value is rendered with `textContent`, because ticket text is written by agents and is untrusted.
-  - Writes need `Authorization: Bearer <token>` from `.agent-flow/serve.json` (mode 0600). Cross-origin writes are refused.
+  - Writes need `Authorization: Bearer <token>`: the hub token next to the workspace registry, or the target project's `.agent-flow/serve.json` (mode 0600). A project token cannot write to another project. Cross-origin writes are refused.
+  - The hub opens each registered project at its exact root, so `AGENT_FLOW_HOME` and `AGENT_FLOW_DB` in the hub's environment cannot point every project at one database.
   - The GitHub webhook checks the `X-Hub-Signature-256` HMAC.
 - **Hooks**
   - stdin is parsed with a permissive zod schema, and anything unexpected produces `{}`.

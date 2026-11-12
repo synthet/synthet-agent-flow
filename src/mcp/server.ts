@@ -10,6 +10,7 @@ import { applyAction, claimTicket } from "../core/service.js";
 import type { Action } from "../core/states.js";
 import { actorKind } from "../core/store.js";
 import { openWorkspace, resolveActor, type Workspace } from "../core/workspace.js";
+import { registerQuietly } from "../core/registry.js";
 import { applyPlan, buildPlan, type ImportFormat } from "../importers/index.js";
 import { WORKFLOW_OVERVIEW } from "./overview.js";
 import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
@@ -86,6 +87,8 @@ export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpSer
     if (!ws) {
       ws = openWorkspace(cwd);
       attachNotifiers(ws);
+      // List the project in the user-level registry, so the one dashboard hub shows every project an agent works in.
+      registerQuietly(ws.paths.root);
     }
     return ws;
   };
