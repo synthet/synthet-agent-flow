@@ -9,7 +9,12 @@
     backlog: "Backlog", ready: "Ready", claimed: "Claimed", in_progress: "In progress",
     blocked: "Blocked", review: "Review", done: "Done", cancelled: "Cancelled",
   };
+  const VIEWS = ["board", "review", "activity", "agents", "epics", "stats"];
   const state = {
+    /** The hub: every registered project with its summary (GET /api/workspaces). */
+    hub: null,
+    /** The open project's id, or null on the Projects overview. */
+    ws: null,
     meta: null,
     board: null,
     view: "board",
@@ -105,6 +110,15 @@
     }
     return data;
   }
+  /** The open project's API: /api/w/<id>/<rest>. */
+  function wapi(method, rest, body) {
+    if (!state.ws) return Promise.reject(new Error("no project selected"));
+    return api(method, `/api/w/${encodeURIComponent(state.ws)}${rest}`, body);
+  }
+  function wsName(id) {
+    const w = state.hub && state.hub.workspaces.find((x) => x.id === id);
+    return w ? w.name : id;
+  }
   async function act(fn, okText) {
     try {
       const r = await fn();
@@ -136,13 +150,29 @@
   }
 
   // ───────────────────────── data ─────────────────────────
-  async function refresh() {
+  async function loadHub() {
     try {
-      state.board = await api("GET", "/api/board");
+      state.hub = await api("GET", "/api/workspaces");
+      renderSwitcher();
+    } catch (err) {
+      toast(`cannot list projects: ${err.message}`, "error");
+    }
+  }
+  let hubTimer = null;
+  function scheduleHub() {
+    clearTimeout(hubTimer);
+    hubTimer = setTimeout(async () => { await loadHub(); if (state.view === "home") renderHome(); }, 700);
+  }
+
+  async function refresh() {
+    if (!state.ws) { await loadHub(); render(); return; }
+    if (!state.meta) { render(); return; }
+    try {
+      state.board = await wapi("GET", "/board");
       const review = state.board.columns.find((c) => c.status === "review");
       $("review-count").textContent = review && review.tickets.length ? String(review.tickets.length) : "";
       if (state.selected) {
-        try { state.detail = await api("GET", `/api/tickets/${encodeURIComponent(state.selected)}`); } catch { state.detail = null; }
+        try { state.detail = await wapi("GET", `/tickets/${encodeURIComponent(state.selected)}`); } catch { state.detail = null; }
       }
       render();
     } catch (err) {
@@ -155,18 +185,29 @@
     refreshTimer = setTimeout(refresh, 250);
   }
 
+  /** One stream for every project; each event carries `workspace`, the project it happened in. */
   function connect() {
     const live = $("live");
-    const es = new EventSource(`/api/stream${state.lastSeq ? `?since=${state.lastSeq}` : ""}`);
-    es.addEventListener("hello", () => { live.className = "live on"; $("live-text").textContent = "live"; });
+    const es = new EventSource("/api/stream");
+    let connectedOnce = false;
+    es.addEventListener("hello", () => {
+      live.className = "live on";
+      $("live-text").textContent = "live";
+      // After a reconnect, events may have been missed: reload what is on screen.
+      if (connectedOnce) { scheduleHub(); if (state.ws) scheduleRefresh(); }
+      connectedOnce = true;
+    });
     es.addEventListener("flow", (msg) => {
       const e = JSON.parse(msg.data);
+      const here = e.workspace === state.ws;
+      if (["ticket.claimed", "ticket.approved", "ticket.rejected", "ticket.escalated", "lease.expired", "ticket.submitted"].includes(e.action)) {
+        toast(`${here ? "" : `${wsName(e.workspace)} · `}${e.actor} · ${e.action.replace("ticket.", "")} · ${e.ticket_id || ""}`);
+      }
+      scheduleHub();
+      if (!here) return;
       state.lastSeq = Math.max(state.lastSeq, e.seq);
       state.events.unshift(Object.assign(e, { fresh: true }));
       state.events = state.events.slice(0, 300);
-      if (["ticket.claimed", "ticket.approved", "ticket.rejected", "ticket.escalated", "lease.expired", "ticket.submitted"].includes(e.action)) {
-        toast(`${e.actor} · ${e.action.replace("ticket.", "")} · ${e.ticket_id || ""}`);
-      }
       scheduleRefresh();
       if (state.view === "activity") renderActivity();
     });
@@ -255,7 +296,7 @@
       if (!r) return;
       body.reason = r;
     }
-    await act(() => api("POST", `/api/tickets/${t.id}/move`, body), `${t.id} → ${STATUS_LABEL[status]}`);
+    await act(() => wapi("POST", `/tickets/${t.id}/move`, body), `${t.id} → ${STATUS_LABEL[status]}`);
   }
 
   function laneKey(t) {
@@ -318,7 +359,7 @@
   async function openTicket(id) {
     state.selected = id;
     try {
-      state.detail = await api("GET", `/api/tickets/${encodeURIComponent(id)}`);
+      state.detail = await wapi("GET", `/tickets/${encodeURIComponent(id)}`);
     } catch (err) {
       toast(err.message, "error");
       return;
@@ -337,7 +378,7 @@
     const btns = [];
     const allowed = (state.meta && state.meta.transitions[t.status]) || [];
     const mk = (label, cls, fn) => btns.push(el("button", { class: `btn ${cls || ""}`, text: label, on: { click: fn } }));
-    const tr = (action, extra) => api("POST", `/api/tickets/${t.id}/transition`, Object.assign({ action }, extra || {}));
+    const tr = (action, extra) => wapi("POST", `/tickets/${t.id}/transition`, Object.assign({ action }, extra || {}));
     if (t.type === "epic") return btns;
     if (allowed.includes("approve")) mk("Approve", "success", () => act(() => tr("approve"), `${t.id} approved`));
     if (allowed.includes("reject")) mk("Reject…", "danger", async () => { const r = await ask("What must change?", { multiline: true, ok: "Reject" }); if (r) act(() => tr("reject", { reason: r }), `${t.id} sent back`); });
@@ -393,10 +434,10 @@
         el("span", { class: `verdict ${a.verdict}`, text: a.verdict }),
         el("div", { class: "ac-text" }, el("div", null, el("span", { class: "mono", text: `${a.ac_id} ` }), a.text), a.evidence ? el("div", { class: "ac-evidence", text: a.evidence }) : null),
         el("div", { class: "ac-actions" },
-          el("button", { class: "btn ghost", text: "✔", title: "Mark verified (needs evidence)", on: { click: async () => { const ev = await ask(`Evidence for ${a.ac_id}`, { value: a.evidence || "", ok: "Verify" }); if (ev) act(() => api("POST", `/api/tickets/${d.id}/ac`, { op: "verify", ac_id: a.ac_id, verdict: "Verified", evidence: ev })); } } }),
-          el("button", { class: "btn ghost", text: "✘", title: "Mark failed", on: { click: async () => { const ev = await ask(`What fails for ${a.ac_id}?`, { ok: "Mark failed" }); if (ev !== null) act(() => api("POST", `/api/tickets/${d.id}/ac`, { op: "verify", ac_id: a.ac_id, verdict: "Failed", evidence: ev })); } } }))));
+          el("button", { class: "btn ghost", text: "✔", title: "Mark verified (needs evidence)", on: { click: async () => { const ev = await ask(`Evidence for ${a.ac_id}`, { value: a.evidence || "", ok: "Verify" }); if (ev) act(() => wapi("POST", `/tickets/${d.id}/ac`, { op: "verify", ac_id: a.ac_id, verdict: "Verified", evidence: ev })); } } }),
+          el("button", { class: "btn ghost", text: "✘", title: "Mark failed", on: { click: async () => { const ev = await ask(`What fails for ${a.ac_id}?`, { ok: "Mark failed" }); if (ev !== null) act(() => wapi("POST", `/tickets/${d.id}/ac`, { op: "verify", ac_id: a.ac_id, verdict: "Failed", evidence: ev })); } } }))));
     }
-    acs.appendChild(el("button", { class: "btn ghost", text: "+ criterion", on: { click: async () => { const t = await ask("New acceptance criterion (Done when…)", { ok: "Add" }); if (t) act(() => api("POST", `/api/tickets/${d.id}/ac`, { op: "add", text: t })); } } }));
+    acs.appendChild(el("button", { class: "btn ghost", text: "+ criterion", on: { click: async () => { const t = await ask("New acceptance criterion (Done when…)", { ok: "Add" }); if (t) act(() => wapi("POST", `/tickets/${d.id}/ac`, { op: "add", text: t })); } } }));
     body.appendChild(acs);
 
     const deps = [...d.depends_on.map((x) => ["→", x]), ...d.dependents.map((x) => ["←", x]), ...d.children.map((x) => ["↳", x])];
@@ -419,7 +460,7 @@
     const ta = el("textarea", { placeholder: "Add a note, review comment, or handoff…", rows: 3 });
     const kind = el("select", null, el("option", { value: "note", text: "note" }), el("option", { value: "review", text: "review" }), el("option", { value: "handoff", text: "handoff" }));
     notes.appendChild(el("div", { class: "composer" }, ta, el("div", { class: "row" }, kind,
-      el("button", { class: "btn primary", text: "Add", on: { click: () => { if (ta.value.trim()) act(() => api("POST", `/api/tickets/${d.id}/comments`, { kind: kind.value, body: ta.value })); } } }))));
+      el("button", { class: "btn primary", text: "Add", on: { click: () => { if (ta.value.trim()) act(() => wapi("POST", `/tickets/${d.id}/comments`, { kind: kind.value, body: ta.value })); } } }))));
     body.appendChild(notes);
 
     if (d.sessions.length) {
@@ -454,7 +495,7 @@
   async function renderActivity() {
     const root = clear($("view-activity"));
     if (state.events.length === 0) {
-      try { state.events = await api("GET", "/api/events?limit=200"); } catch (err) { toast(err.message, "error"); }
+      try { state.events = await wapi("GET", "/events?limit=200"); } catch (err) { toast(err.message, "error"); }
     }
     const feed = el("div", { class: "feed" });
     for (const e of state.events) { feed.appendChild(eventRow(e, true)); e.fresh = false; }
@@ -469,7 +510,7 @@
     if (!items.length) { root.appendChild(el("div", { class: "empty", text: "Nothing waiting for review." })); return; }
     for (const t of items) {
       let d;
-      try { d = await api("GET", `/api/tickets/${t.id}`); } catch { continue; }
+      try { d = await wapi("GET", `/tickets/${t.id}`); } catch { continue; }
       const handoff = [...d.comments].reverse().find((c) => c.kind === "handoff");
       const unverified = d.acceptance.filter((a) => a.verdict !== "Verified");
       root.appendChild(el("div", { class: "review-card" },
@@ -487,7 +528,7 @@
   async function renderAgents() {
     const root = clear($("view-agents"));
     let agents = [];
-    try { agents = await api("GET", "/api/agents"); } catch (err) { toast(err.message, "error"); }
+    try { agents = await wapi("GET", "/agents"); } catch (err) { toast(err.message, "error"); }
     if (!agents.length) { root.appendChild(el("div", { class: "empty", text: "No agents have claimed work yet." })); return; }
     const tbody = el("tbody");
     for (const a of agents) {
@@ -545,7 +586,7 @@
   async function renderEpics() {
     const root = clear($("view-epics"));
     let epics = [];
-    try { epics = await api("GET", "/api/epics"); } catch (err) { toast(err.message, "error"); }
+    try { epics = await wapi("GET", "/epics"); } catch (err) { toast(err.message, "error"); }
     if (!epics.length) { root.appendChild(el("div", { class: "empty", text: "No epics. Import a spec's tasks with `agent-flow import-tasks`." })); return; }
     for (const { epic, children, edges } of epics) {
       const done = children.filter((c) => c.status === "done").length;
@@ -566,7 +607,7 @@
   async function renderStats() {
     const root = clear($("view-stats"));
     let s;
-    try { s = await api("GET", "/api/stats"); } catch (err) { toast(err.message, "error"); return; }
+    try { s = await wapi("GET", "/stats"); } catch (err) { toast(err.message, "error"); return; }
     const tile = (k, v, sub) => el("div", { class: "tile" }, el("div", { class: "k", text: k }), el("div", { class: "v", text: v }), sub ? el("div", { class: "sub", text: sub }) : null);
     root.appendChild(el("div", { class: "tiles" },
       tile("Ready", s.ready, "unblocked & unclaimed"),
@@ -603,7 +644,7 @@
       on: {
         submit: async (e) => {
           e.preventDefault();
-          const t = await act(() => api("POST", "/api/tickets", {
+          const t = await act(() => wapi("POST", "/tickets", {
             title: f.title.value, type: f.type.value, priority: f.priority.value, lane: f.lane.value, body: f.body.value,
             acceptance: f.ac.value.split("\n").map((x) => x.trim()).filter(Boolean),
             labels: f.labels.value.split(",").map((x) => x.trim()).filter(Boolean), ready: f.ready.checked,
@@ -624,16 +665,205 @@
     f.title.focus();
   }
 
+  // ───────────────────────── projects overview ─────────────────────────
+  const inFlight = (w) => (w.counts ? w.counts.claimed + w.counts.in_progress : 0);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  /** Keep the end of a long path (the part that names the project); the full path is in the tooltip. */
+  function shortPath(p) {
+    const parts = String(p).split(/[\\/]/).filter(Boolean);
+    return parts.length > 3 && p.length > 40 ? `…${p.includes("\\") ? "\\" : "/"}${parts.slice(-3).join(p.includes("\\") ? "\\" : "/")}` : p;
+  }
+  /** Projects that need a person first, then the most recently active. Unavailable ones sink to the bottom. */
+  function rankProjects(list) {
+    const attention = (w) => (w.status !== "ok" ? -1 : (w.counts.review ? 2 : 0) + (w.needs_human ? 2 : 0) + (w.counts.blocked ? 1 : 0));
+    const lastTs = (w) => (w.last_event ? Date.parse(w.last_event.ts) : 0);
+    return [...list].sort((a, b) => attention(b) - attention(a) || lastTs(b) - lastTs(a) || a.name.localeCompare(b.name));
+  }
+
+  function statusBar(counts) {
+    const order = ["done", "review", "in_progress", "claimed", "blocked", "ready", "backlog"];
+    const total = order.reduce((a, k) => a + (counts[k] || 0), 0);
+    return el("div", { class: "progress wide", title: order.filter((k) => counts[k]).map((k) => `${STATUS_LABEL[k]} ${counts[k]}`).join(" · ") || "no tickets" },
+      order.map((k) => (counts[k] ? el("span", { style: { width: `${(100 * counts[k]) / Math.max(1, total)}%`, background: scolor(k) } }) : null)));
+  }
+
+  function projectCard(w) {
+    const ok = w.status === "ok";
+    const metric = (n, label, cls) => el("span", { class: `metric${n ? ` ${cls || ""}` : " zero"}` }, el("b", { text: n }), ` ${label}`);
+    const node = el("article", {
+      class: `project-card${ok ? "" : " unavailable"}`,
+      tabindex: "0",
+      "aria-label": `Open ${w.name}`,
+      on: {
+        click: () => { if (ok) go(w.id, "board"); },
+        keydown: (e) => { if (e.key === "Enter" && ok) go(w.id, "board"); },
+      },
+    },
+      el("div", { class: "project-head" },
+        el("span", { class: `pdot ${w.status}`, title: w.status }),
+        el("h3", { text: w.name }),
+        w.default ? el("span", { class: "chip", text: "this hub", title: "serve was started in this project" }) : null,
+        ok && w.needs_human ? el("span", { class: "chip human", text: `${w.needs_human} need a human` }) : null),
+      el("div", { class: "project-root mono", text: shortPath(w.root), title: w.root }));
+    if (!ok) {
+      node.appendChild(el("div", { class: "project-error", text: w.error || "unavailable" }));
+      node.appendChild(el("div", { class: "row" },
+        el("button", { class: "btn ghost", text: "Forget", title: "Remove from the registry (the project's files are untouched)", on: { click: async (e) => {
+          e.stopPropagation();
+          await act(() => api("POST", `/api/workspaces/${encodeURIComponent(w.id)}/forget`, {}), `${w.name} removed from the hub`);
+        } } })));
+      return node;
+    }
+    node.appendChild(statusBar(w.counts));
+    node.appendChild(el("div", { class: "metrics" },
+      metric(w.ready, "ready", "ready"),
+      metric(inFlight(w), "in flight", "flight"),
+      metric(w.counts.review, "review", "review"),
+      metric(w.counts.blocked, "blocked", "blocked")));
+    const foot = el("div", { class: "project-foot" });
+    if (w.agents.length) {
+      foot.appendChild(el("span", { class: "avatars", title: w.agents.join(", ") },
+        w.agents.slice(0, 5).map((a) => el("span", { class: `avatar${isHuman(a) ? " human" : ""}`, text: initials(a) }))));
+    }
+    foot.appendChild(w.last_event
+      ? el("span", { class: "last", title: w.last_event.ts }, `${w.last_event.actor} · ${w.last_event.action}${w.last_event.ticket_id ? ` ${w.last_event.ticket_id}` : ""} · ${ago(w.last_event.ts)}`)
+      : el("span", { class: "last", text: "no activity yet" }));
+    node.appendChild(foot);
+    return node;
+  }
+
+  function crossList(title, rows, emptyText) {
+    const sec = el("section", { class: "cross" }, el("h2", { text: title }));
+    if (!rows.length) { sec.appendChild(el("div", { class: "empty small", text: emptyText })); return sec; }
+    for (const { w, t } of rows) {
+      sec.appendChild(el("div", { class: "cross-row", tabindex: "0", on: {
+        click: () => openIn(w.id, t.id),
+        keydown: (e) => { if (e.key === "Enter") openIn(w.id, t.id); },
+      } },
+        el("span", { class: "chip project", text: w.name }),
+        el("span", { class: "mono", text: t.id }),
+        el("span", { class: `chip ${t.priority}`, text: t.priority }),
+        el("span", { class: "cross-title", text: t.title }),
+        t.owner ? el("span", { class: "owner", title: t.owner }, el("span", { class: `avatar${isHuman(t.owner) ? " human" : ""}`, text: initials(t.owner) })) : null,
+        el("span", { class: "when", text: ago(t.updated_at), title: t.updated_at })));
+    }
+    return sec;
+  }
+
+  function renderHome() {
+    const root = clear($("view-home"));
+    const hub = state.hub;
+    if (!hub) return;
+    const list = rankProjects(hub.workspaces);
+    if (!list.length) {
+      root.appendChild(el("div", { class: "empty" },
+        el("p", { text: "No projects are registered with this hub yet." }),
+        el("p", { class: "mono", text: "agent-flow init   ·   agent-flow workspaces add <dir>   ·   agent-flow workspaces scan <projects-root>" })));
+      return;
+    }
+    const ok = list.filter((w) => w.status === "ok");
+    const sum = (f) => ok.reduce((a, w) => a + f(w), 0);
+    const tile = (k, v, sub) => el("div", { class: "tile" }, el("div", { class: "k", text: k }), el("div", { class: "v", text: v }), sub ? el("div", { class: "sub", text: sub }) : null);
+    const off = list.length - ok.length;
+    root.appendChild(el("div", { class: "tiles" },
+      tile("Projects", ok.length, off ? `${off} unavailable` : "all reachable"),
+      tile("Ready", sum((w) => w.ready), "unblocked & unclaimed"),
+      tile("In flight", sum(inFlight), plural(new Set(ok.flatMap((w) => w.agents)).size, "agent working", "agents working")),
+      tile("In review", sum((w) => w.counts.review)),
+      tile("Blocked", sum((w) => w.counts.blocked), `${sum((w) => w.needs_human)} need a human`),
+      tile("Done · 7 days", sum((w) => w.done_last_7d))));
+    root.appendChild(el("div", { class: "projects" }, list.map(projectCard)));
+    const review = ok.flatMap((w) => w.review.map((t) => ({ w, t }))).sort((a, b) => Date.parse(a.t.updated_at) - Date.parse(b.t.updated_at));
+    const flight = ok.flatMap((w) => w.in_flight.map((t) => ({ w, t }))).sort((a, b) => Date.parse(b.t.updated_at) - Date.parse(a.t.updated_at));
+    root.appendChild(el("div", { class: "cross-grid" },
+      crossList("Waiting for review", review, "Nothing waiting for review in any project."),
+      crossList("In flight", flight, "No agent holds a ticket right now.")));
+  }
+
   // ───────────────────────── shell ─────────────────────────
+  function hashFor(ws, view) {
+    return ws ? `#/${encodeURIComponent(ws)}/${view || "board"}` : "#/";
+  }
+  /** Navigate (with a history entry) to a project's view, or to the overview when ws is null. */
+  function go(ws, view) {
+    const h = hashFor(ws, view);
+    if (location.hash !== h) history.pushState(null, "", h);
+    return route();
+  }
+  async function openIn(ws, ticketId) {
+    await go(ws, "board");
+    openTicket(ticketId);
+  }
+
+  async function selectProject(id) {
+    state.ws = id;
+    state.meta = null;
+    state.board = null;
+    state.selected = null;
+    state.detail = null;
+    state.events = [];
+    state.lastSeq = 0;
+    $("drawer").hidden = true;
+    $("review-count").textContent = "";
+    if (id) {
+      try {
+        state.meta = await wapi("GET", "/meta");
+      } catch (err) {
+        toast(`${wsName(id)}: ${err.message}`, "error");
+      }
+    }
+    renderSwitcher();
+  }
+
+  /** Read the hash: `#/` overview, `#/<project>/<view>`, or a legacy `#<view>` for the default project. */
+  async function route() {
+    const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map((p) => { try { return decodeURIComponent(p); } catch { return p; } });
+    const known = (id) => !!(state.hub && state.hub.workspaces.some((w) => w.id === id));
+    let [ws, view] = parts;
+    if (ws && !known(ws) && VIEWS.includes(ws) && !view && state.hub && state.hub.default) { view = ws; ws = state.hub.default; }
+    if (ws && !known(ws)) { toast(`no project "${ws}" in this hub`, "error"); ws = null; }
+    if (!ws && !parts.length && state.hub && state.hub.workspaces.length === 1 && state.hub.workspaces[0].status === "ok") {
+      ws = state.hub.workspaces[0].id; // one project: skip the overview
+    }
+    if ((ws || null) !== state.ws) await selectProject(ws || null);
+    if (!ws) { showView("home"); return; }
+    showView(VIEWS.includes(view) ? view : load("view", "board"));
+    await refresh();
+  }
+
+  function renderSwitcher() {
+    const sel = clear($("ws-select"));
+    sel.appendChild(el("option", { value: "", text: "All projects" }));
+    for (const w of (state.hub ? rankProjects(state.hub.workspaces) : [])) {
+      const extra = w.status !== "ok" ? " (unavailable)" : w.counts.review ? ` · ${w.counts.review} in review` : "";
+      sel.appendChild(el("option", { value: w.id, text: `${w.name}${extra}`, selected: w.id === state.ws, disabled: w.status !== "ok" && w.id !== state.ws }));
+    }
+    sel.value = state.ws || "";
+    const w = state.ws && state.hub && state.hub.workspaces.find((x) => x.id === state.ws);
+    sel.title = w ? w.root : "Every project registered with this hub";
+    document.title = w ? `agent-flow · ${w.name}` : "agent-flow · projects";
+  }
+
   function showView(view) {
     state.view = view;
-    save("view", view);
+    const home = view === "home";
+    if (!home) save("view", view);
+    const h = hashFor(home ? null : state.ws, view);
+    if (location.hash !== h) history.replaceState(null, "", h);
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === view));
     document.querySelectorAll(".view").forEach((v) => { v.hidden = v.id !== `view-${view}`; });
+    $("tabs").hidden = home;
+    $("new-ticket").hidden = home || !state.meta;
     $("toolbar").hidden = view !== "board";
     render();
   }
   function render() {
+    if (state.view === "home") { renderHome(); return; }
+    if (!state.meta) {
+      const root = clear($(`view-${state.view}`));
+      root.appendChild(el("div", { class: "empty" }, `${wsName(state.ws)} is unavailable. `, el("a", { href: "#/", text: "Back to all projects" })));
+      return;
+    }
     if (state.view === "board") renderBoard();
     else if (state.view === "review") renderReview();
     else if (state.view === "activity") renderActivity();
@@ -645,14 +875,11 @@
 
   async function init() {
     try {
-      state.meta = await api("GET", "/api/meta");
+      state.hub = await api("GET", "/api/workspaces");
     } catch (err) {
       toast(`cannot reach agent-flow: ${err.message}`, "error");
       return;
     }
-    $("project").textContent = state.meta.root.split(/[\\/]/).filter(Boolean).pop() || state.meta.root;
-    $("project").title = state.meta.root;
-    document.title = `agent-flow · ${state.meta.root.split(/[\\/]/).pop()}`;
     $("actor").value = state.actor;
     $("actor").addEventListener("change", (e) => {
       const v = e.target.value.trim();
@@ -668,17 +895,19 @@
     $("show-done").addEventListener("change", (e) => { state.showDone = e.target.checked; save("showDone", e.target.checked ? "1" : "0"); renderBoard(); });
     $("search").addEventListener("input", (e) => { state.filter = e.target.value; renderBoard(); });
     $("new-ticket").addEventListener("click", newTicketModal);
-    document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
+    $("ws-select").addEventListener("change", (e) => go(e.target.value || null, VIEWS.includes(state.view) ? state.view : "board"));
+    $("home-link").addEventListener("click", (e) => { e.preventDefault(); go(null); });
+    document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => go(state.ws, t.dataset.view)));
+    window.addEventListener("popstate", () => { route(); });
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") { if (!$("modal").hidden) { $("modal").hidden = true; clear($("modal")); } else if (state.selected) closeDrawer(); }
-      if (e.key === "/" && document.activeElement === document.body) { e.preventDefault(); $("search").focus(); }
+      if (e.key === "/" && document.activeElement === document.body && state.view === "board") { e.preventDefault(); $("search").focus(); }
     });
     $("modal").addEventListener("click", (e) => { if (e.target === $("modal")) { $("modal").hidden = true; clear($("modal")); } });
-    const hash = location.hash.replace("#", "");
-    await refresh();
-    showView(["board", "review", "activity", "agents", "epics", "stats"].includes(hash) ? hash : load("view", "board"));
+    renderSwitcher();
+    await route();
     connect();
-    setInterval(() => { if (state.view === "board") renderBoard(); }, 30000); // lease countdowns
+    setInterval(() => { if (state.view === "board") renderBoard(); else if (state.view === "home") renderHome(); }, 30000); // lease countdowns, "ago" labels
   }
 
   init();

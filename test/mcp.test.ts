@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -139,6 +139,8 @@ describe("mcp server", () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [path.join(__dirname, "..", "bin", "agent-flow.js"), "mcp", "-C", dir, "--actor", "claude:stdio"],
+      // The SDK passes only a whitelisted env to the child, so hand it the test registry or it registers in ~/.agent-flow.
+      env: { ...getDefaultEnvironment(), AGENT_FLOW_REGISTRY: process.env.AGENT_FLOW_REGISTRY as string },
     });
     const client = new Client({ name: "stdio-test", version: "1" });
     await client.connect(transport);

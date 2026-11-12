@@ -22,7 +22,7 @@ Codes are `NOT_FOUND`, `INVALID_ARGUMENT`, `INVALID_TRANSITION`, `CLAIM_CONFLICT
 | sdd | `import-tasks <file\|dir> [--format auto\|framework\|speckit\|openspec\|checklist] [--spec spec.md] [--epic id] [--no-epic] [--backlog] [--dry-run]` · `import-backlog [items.md]` |
 | integrations | `github push [<id>…]\|reconcile\|pr <id>\|body <id>` · `mailbox test\|flush\|status` · `review <id> --swarm [--agents …] [--dry-run]` |
 | automation | `loop start\|run\|stop\|status [--max N] [--label l] [--harness claude\|codex] [--max-turns N]` |
-| servers | `serve [--port 8791] [--open]` · `mcp` |
+| servers | `serve [--port 8791] [--open] [--no-registry]` · `workspaces [list]\|add [dir…]\|remove <id\|dir>…\|scan [root] [--dry-run]` · `mcp` |
 | data | `export [--out f\|--stdout]` · `import [file]` · `reap` · `audit verify` |
 
 When a lifecycle or detail command gets no `<id>`, it uses the ticket bound to the current branch (`af/<id>-…`). If no ticket is bound, it falls back to the actor's active ticket.
@@ -59,7 +59,17 @@ Deviation from the framework's `mcp-server-design`: only destructive and bulk to
 
 ## REST (`agent-flow serve`)
 
-Loopback only. Writes need `Authorization: Bearer <token from .agent-flow/serve.json>`. The actor comes from `X-Flow-Actor` or `body.actor`, and defaults to the server's `human:` actor.
+Loopback only. One server is a hub for every project in the workspace registry. Writes need `Authorization: Bearer <token>`, using either the hub token (`~/.agent-flow/serve.json`, next to the registry) or the target project's own `.agent-flow/serve.json`. The actor comes from `X-Flow-Actor` or `body.actor`, and defaults to the server's `human:` actor.
+
+Every project route below is served under `/api/w/<workspace-id>/…`. The bare `/api/…` form addresses the default workspace, which is the project `serve` was started in. It returns 404 when the hub has no default workspace.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/workspaces` | `{default, actor, registry, workspaces: [{id, name, root, default, status: ok\|missing\|error, counts, ready, needs_human, done_last_7d, review[], in_flight[], agents[], last_event}]}` |
+| POST | `/api/workspaces/:id/forget` | Remove a workspace from the registry (its files are untouched). Needs the hub token. |
+| GET | `/api/stream` | SSE from every workspace; each event has `workspace`. `/api/w/:id/stream` is one workspace and replays with `Last-Event-ID` / `?since=`. |
+
+Per-project routes:
 
 | Method | Path | Notes |
 |---|---|---|
@@ -69,13 +79,13 @@ Loopback only. Writes need `Authorization: Bearer <token from .agent-flow/serve.
 | GET | `/api/board?epic&label&lane&q` | columns with WIP limits |
 | GET | `/api/ready?label&epic` · `/api/tickets?status&owner&label&epic&type&q&all=1` · `/api/tickets/:id` | |
 | GET | `/api/events?since&ticket&limit` · `/api/agents` · `/api/stats` · `/api/epics` · `/api/sessions` | |
-| GET | `/api/stream` | SSE `event: flow` per audit event (supports `Last-Event-ID` / `?since=`); tails the shared DB, so CLI and agent writes appear live |
+| GET | `/api/stream` | SSE `event: flow` per audit event; tails each project's DB, so CLI and agent writes appear live |
 | POST | `/api/tickets` | create (`ready: true` for the queue) |
 | PATCH | `/api/tickets/:id` | edit (`expected_version` supported) |
 | POST | `/api/tickets/:id/transition` | `{action, reason?, unblock_condition?, force?, skip_dod?}` |
 | POST | `/api/tickets/:id/move` | `{to: status}`: a board drag, mapped to the single legal action |
 | POST | `/api/tickets/:id/comments` · `/ac` · `/deps` | |
-| POST | `/hooks/github` | GitHub webhook (`pull_request`, `pull_request_review`). HMAC with `$AGENT_FLOW_GITHUB_SECRET`. Only when `github.enabled` is set. |
+| POST | `/hooks/github[/:workspace]` | GitHub webhook (`pull_request`, `pull_request_review`). HMAC with `$AGENT_FLOW_GITHUB_SECRET`. Only when that workspace has `github.enabled` set. |
 
 HTTP statuses: 400 invalid, 401 unauthorised, 403 not owner, 404 not found, 409 conflict or transition, 421 non-loopback host, 422 gate or cycle, 428 confirmation required.
 

@@ -8,6 +8,7 @@ import { allCommands, lookup, type CommandCtx, type Options } from "./registry.j
 import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
 import "./commands/core.js";
 import "./commands/extra.js";
+import "./commands/workspaces.js";
 
 const GLOBAL: Options = {
   json: { type: "boolean" },

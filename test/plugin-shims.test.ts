@@ -39,6 +39,7 @@ function installCli(body: string): string {
 /** cmd.exe needs these to start, and the shims run with a minimal environment here. */
 const baseEnv = () => ({
   HOME: process.env.HOME ?? "",
+  AGENT_FLOW_REGISTRY: process.env.AGENT_FLOW_REGISTRY ?? "off",
   ...(WIN ? { SystemRoot: process.env.SystemRoot ?? "", ComSpec: process.env.ComSpec ?? "" } : {}),
 });
 

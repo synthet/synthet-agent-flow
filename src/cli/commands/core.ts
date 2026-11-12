@@ -7,6 +7,7 @@ import { applyAction, branchFor, checkDod, claimTicket, submitTicket } from "../
 import type { Action } from "../../core/states.js";
 import { STATUSES, type Status } from "../../core/config.js";
 import { initWorkspace } from "../../core/workspace.js";
+import { registerQuietly } from "../../core/registry.js";
 import type { DepKind, Verdict } from "../../core/types.js";
 import { applyPlan, buildPlan, type ImportFormat } from "../../importers/index.js";
 import { bold, dim, eventRow, status, ticketDetail, ticketRow, ticketTable } from "../format.js";
@@ -81,7 +82,8 @@ register(
       if (multi(ctx.values.dod).length) overrides.dod = multi(ctx.values.dod);
       if (bool(ctx.values["no-review"])) overrides.requireReview = false;
       const { paths, created } = initWorkspace(ctx.cwd, overrides);
-      ctx.print({ root: paths.root, dir: paths.dir, created }, () =>
+      const entry = registerQuietly(paths.root);
+      ctx.print({ root: paths.root, dir: paths.dir, created, workspace: entry?.id ?? null }, () =>
         created
           ? `Initialized agent-flow in ${paths.dir}\nNext: agent-flow create "First ticket" --ready --ac "..."  ·  agent-flow serve  ·  agent-flow install --harness claude`
           : `agent-flow already initialized in ${paths.dir}`,

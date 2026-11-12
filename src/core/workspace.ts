@@ -21,9 +21,20 @@ export function isInitialized(root: string): boolean {
  * (fresh clone), the DB is rebuilt from the snapshot.
  */
 export function openWorkspace(cwd: string = process.cwd(), opts: { requireInit?: boolean } = {}): Workspace {
-  const root = resolveRoot(cwd);
-  const paths = flowPaths(root);
-  if (opts.requireInit !== false && !existsSync(paths.config)) {
+  return openPaths(flowPaths(resolveRoot(cwd)), opts.requireInit !== false);
+}
+
+/**
+ * Open the tracker at exactly `root`, ignoring `AGENT_FLOW_HOME` and `AGENT_FLOW_DB`. The dashboard hub uses this for
+ * every registered project, so one process's overrides cannot point all of them at the same database.
+ */
+export function openWorkspaceAt(root: string): Workspace {
+  return openPaths(flowPaths(path.resolve(root), { exact: true }), true);
+}
+
+function openPaths(paths: FlowPaths, requireInit: boolean): Workspace {
+  const root = paths.root;
+  if (requireInit && !existsSync(paths.config)) {
     throw new FlowError("NOT_INITIALIZED", `no .agent-flow/ in ${root}`, { nextSteps: ["agent-flow init"] });
   }
   const config = loadConfig(paths.config);

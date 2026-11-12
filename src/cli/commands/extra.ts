@@ -22,22 +22,45 @@ register({
   name: "serve",
   aliases: ["dashboard", "ui"],
   group: "servers",
-  summary: "Web Kanban dashboard + REST/SSE API on loopback (default http://127.0.0.1:8791)",
-  usage: "serve [--port 8791] [--host 127.0.0.1] [--open] [--exit-on-stdin-close]",
-  options: { port: { type: "string", short: "p" }, host: { type: "string" }, open: { type: "boolean" }, "exit-on-stdin-close": { type: "boolean" } },
+  summary: "One web dashboard for every registered project + REST/SSE API on loopback (default http://127.0.0.1:8791)",
+  usage: "serve [--port 8791] [--host 127.0.0.1] [--open] [--no-registry] [--exit-on-stdin-close]",
+  options: {
+    port: { type: "string", short: "p" },
+    host: { type: "string" },
+    open: { type: "boolean" },
+    "no-registry": { type: "boolean" },
+    "exit-on-stdin-close": { type: "boolean" },
+  },
   async run(ctx) {
     const { startServer } = await import("../../server/http.js");
     const { githubWebhookHandler } = await import("../../integrations/github.js");
-    const ws = ctx.ws();
+    const { isInitialized } = await import("../../core/workspace.js");
+    const { hubTokenFile, readRegistry, registryPath } = await import("../../core/registry.js");
+    const registry = bool(ctx.values["no-registry"]) ? null : registryPath();
+    // Inside a project, that project is the default (legacy /api/* routes); outside one, the hub serves the registry alone.
+    const root = resolveRoot(ctx.cwd);
+    const here = isInitialized(root);
+    if (!here && (!registry || readRegistry(registry).length === 0)) {
+      throw new FlowError("NOT_INITIALIZED", `no .agent-flow/ in ${root} and no registered workspaces`, {
+        nextSteps: ["agent-flow init", "agent-flow workspaces add <dir>", "agent-flow workspaces scan <projects-root>"],
+      });
+    }
+    const ws = here ? ctx.ws() : null;
     const port = str(ctx.values.port);
     const server = await startServer(ws, {
       host: str(ctx.values.host),
       port: port !== undefined ? Number(port) : undefined,
       actor: ctx.actor,
-      githubWebhook: ws.config.github.enabled ? githubWebhookHandler : undefined,
+      registry,
+      githubWebhook: githubWebhookHandler,
       log: (l) => ctx.stderr(l),
     });
-    ctx.print({ url: server.url, token_file: ws.paths.serveFile }, `agent-flow dashboard: ${server.url}\nREST writes need: Authorization: Bearer $(jq -r .token ${ws.paths.serveFile})\nCtrl-C to stop.`);
+    const tokenFile = registry ? hubTokenFile(registry) : (ws?.paths.serveFile ?? "");
+    const alsoProject = ws && registry ? ` (or ${ws.paths.serveFile} for this project)` : "";
+    ctx.print(
+      { url: server.url, token_file: tokenFile, project_token_file: ws?.paths.serveFile ?? null, registry },
+      `agent-flow dashboard: ${server.url}\nREST writes need: Authorization: Bearer $(jq -r .token ${tokenFile})${alsoProject}\nCtrl-C to stop.`,
+    );
     if (ctx.values.open) {
       const { run } = await import("../../core/proc.js");
       const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open";

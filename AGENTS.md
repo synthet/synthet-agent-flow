@@ -10,10 +10,10 @@
 ## Layout
 | Path | What |
 |---|---|
-| `src/core/` | store (all rules), states table, db/migrations, config schema, context builder, service layer, DoD runner |
+| `src/core/` | store (all rules), states table, db/migrations, config schema, context builder, service layer, DoD runner, workspace registry (`registry.ts`) |
 | `src/cli/` | `main.ts` dispatcher, `registry.ts`, `commands/core.ts` (tickets/lifecycle), `commands/extra.ts` (servers/hooks/integrations) |
 | `src/mcp/` | stdio MCP server (`flow_*` tools, resources) |
-| `src/server/` + `assets/dashboard/` | REST/SSE server and the vanilla dashboard (strict CSP, textContent only) |
+| `src/server/` + `assets/dashboard/` | REST/SSE hub for every registered workspace and the vanilla dashboard (strict CSP, textContent only) |
 | `src/hooks/` | Claude Code hook handlers, statusline, snapshot |
 | `src/integrations/` | github, mailbox, swarm, worktree, loop, notify/outbox, install |
 | `src/importers/` | framework `/tasks`, Spec Kit, OpenSpec and local-markdown importers |

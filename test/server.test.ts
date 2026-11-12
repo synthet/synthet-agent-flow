@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { readRegistry, registerWorkspace } from "../src/core/registry.js";
 import { initWorkspace, openWorkspace, type Workspace } from "../src/core/workspace.js";
 import { startServer, type RunningServer } from "../src/server/http.js";
 import { tempDir } from "./helpers.js";
@@ -19,7 +22,7 @@ async function boot() {
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
   initWorkspace(dir);
   ws = openWorkspace(dir);
-  server = await startServer(ws, { port: 0, actor: "human:tester", pollMs: 50 });
+  server = await startServer(ws, { port: 0, actor: "human:tester", pollMs: 50, registry: path.join(tempDir("af-srv-reg-"), "workspaces.json") });
   const base = server.url.replace(/\/$/, "");
   const token = server.token;
   const call = async (method: string, path: string, body?: unknown, auth = true, headers: Record<string, string> = {}) => {
@@ -119,5 +122,109 @@ describe("http server", () => {
     const epics = (await call("GET", "/api/epics", undefined, false)).json;
     expect(epics[0].edges).toEqual([{ from: a.id, to: expect.any(String) }]);
     expect((await call("GET", "/api/stats", undefined, false)).json.ready).toBe(1);
+  });
+});
+
+describe("dashboard hub", () => {
+  let extra: RunningServer | null = null;
+  afterEach(async () => {
+    await extra?.close();
+    extra = null;
+  });
+
+  function project(parent: string, name: string): string {
+    const dir = path.join(parent, name);
+    mkdirSync(dir, { recursive: true });
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    initWorkspace(dir);
+    return dir;
+  }
+
+  async function hub(withDefault: boolean) {
+    const parent = tempDir("af-hub-");
+    const registry = path.join(parent, "home", "workspaces.json");
+    const alpha = project(parent, "alpha");
+    const beta = project(parent, "beta");
+    registerWorkspace(beta, registry);
+    // Beta's tickets live in beta's own database, written by beta's own processes (CLI, MCP).
+    const betaWs = openWorkspace(beta);
+    betaWs.store.create({ title: "Beta needs review", status: "ready" }, "human:x");
+    betaWs.close();
+    ws = withDefault ? openWorkspace(alpha) : null;
+    extra = await startServer(ws, { port: 0, actor: "human:tester", pollMs: 50, registry });
+    const base = extra.url.replace(/\/$/, "");
+    const call = async (method: string, p: string, body?: unknown, token: string | null = extra!.token) => {
+      const res = await fetch(base + p, {
+        method,
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return { status: res.status, json: (await res.json().catch(() => null)) as any };
+    };
+    return { base, call, registry, alpha, beta };
+  }
+
+  it("serves every registered workspace from one port, each from its own database", async () => {
+    const { call, registry, alpha, beta } = await hub(true);
+    // Starting the hub in alpha registered alpha too.
+    expect(readRegistry(registry).map((e) => e.id).sort()).toEqual(["alpha", "beta"]);
+    const list = (await call("GET", "/api/workspaces", undefined, null)).json;
+    expect(list.default).toBe("alpha");
+    const byId = Object.fromEntries(list.workspaces.map((w: any) => [w.id, w]));
+    expect(byId.alpha).toMatchObject({ status: "ok", default: true, ready: 0 });
+    expect(byId.beta).toMatchObject({ status: "ok", default: false, ready: 1, root: expect.stringContaining("beta") });
+
+    const made = await call("POST", "/api/w/beta/tickets", { title: "From the hub", ready: true });
+    expect(made.status).toBe(201);
+    expect((await call("GET", "/api/w/beta/board", undefined, null)).json.columns.find((c: any) => c.status === "ready").tickets).toHaveLength(2);
+    expect((await call("GET", "/api/w/beta/meta", undefined, null)).json).toMatchObject({ workspace: { id: "beta", default: false } });
+    // Legacy routes still address the default workspace.
+    expect((await call("GET", "/api/board", undefined, null)).json.columns.flatMap((c: any) => c.tickets)).toEqual([]);
+    expect((await call("GET", "/api/w/nope/board", undefined, null)).status).toBe(404);
+
+    // Alpha's project token (.agent-flow/serve.json) writes to alpha, not to beta.
+    const alphaToken = JSON.parse(readFileSync(path.join(alpha, ".agent-flow", "serve.json"), "utf8")).token as string;
+    expect((await call("POST", "/api/w/alpha/tickets", { title: "a" }, alphaToken)).status).toBe(201);
+    expect((await call("POST", "/api/w/beta/tickets", { title: "b" }, alphaToken)).status).toBe(401);
+    void beta;
+  });
+
+  it("streams events from every workspace tagged with the workspace id", async () => {
+    const { base, beta } = await hub(true);
+    const ctrl = new AbortController();
+    const res = await fetch(`${base}/api/stream`, { signal: ctrl.signal });
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    const other = openWorkspace(beta);
+    other.store.create({ title: "made in beta" }, "claude:cli");
+    other.close();
+    let text = "";
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline && !text.includes("made in beta")) text += decoder.decode((await reader.read()).value);
+    ctrl.abort();
+    const frame = text.split(/\n\n/).find((f) => f.includes("ticket.created"))!;
+    expect(JSON.parse(frame.split("data: ")[1])).toMatchObject({ workspace: "beta", action: "ticket.created" });
+  });
+
+  it("starts without a default workspace, picks up new registrations, and forgets unavailable ones", async () => {
+    const { call, registry } = await hub(false);
+    expect((await call("GET", "/api/workspaces", undefined, null)).json.default).toBeNull();
+    expect((await call("GET", "/api/board", undefined, null)).status).toBe(404);
+    expect((await call("GET", "/", undefined, null)).status).toBe(200);
+
+    const late = project(path.dirname(path.dirname(registry)), "gamma");
+    registerWorkspace(late, registry);
+    // A registered project whose folder has since lost its .agent-flow/ (deleted, moved, or on an unplugged drive).
+    const stale = { id: "gone", name: "gone", root: tempDir("af-hub-gone-"), added_at: new Date().toISOString() };
+    writeFileSync(registry, JSON.stringify({ version: 1, workspaces: [...readRegistry(registry), stale] }));
+    const ids = async () => (await call("GET", "/api/workspaces", undefined, null)).json.workspaces.map((w: any) => [w.id, w.status]);
+    expect(Object.fromEntries(await ids())).toEqual({ beta: "ok", gamma: "ok", gone: "missing" });
+    expect((await call("GET", "/api/w/gone/board", undefined, null)).status).toBe(404);
+    expect((await call("POST", "/api/workspaces/gone/forget", {})).status).toBe(200);
+
+    expect((await call("POST", "/api/workspaces/beta/forget", {}, null)).status).toBe(401);
+    expect((await call("POST", "/api/workspaces/beta/forget", {})).status).toBe(200);
+    expect(readRegistry(registry).map((e) => e.id)).not.toContain("beta");
+    expect((await call("GET", "/api/w/beta/board", undefined, null)).status).toBe(404);
   });
 });

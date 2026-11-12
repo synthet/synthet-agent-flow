@@ -48,12 +48,13 @@ export function resolveRoot(cwd: string = process.cwd()): string {
   }
 }
 
-export function flowPaths(root: string): FlowPaths {
+/** `exact` ignores `AGENT_FLOW_DB`, for a process (the dashboard hub) that opens several projects. */
+export function flowPaths(root: string, opts: { exact?: boolean } = {}): FlowPaths {
   const dir = path.join(root, FLOW_DIRNAME);
   return {
     root,
     dir,
-    db: process.env.AGENT_FLOW_DB ? path.resolve(process.env.AGENT_FLOW_DB) : path.join(dir, "flow.db"),
+    db: !opts.exact && process.env.AGENT_FLOW_DB ? path.resolve(process.env.AGENT_FLOW_DB) : path.join(dir, "flow.db"),
     config: path.join(dir, "config.json"),
     snapshot: path.join(dir, "tickets.jsonl"),
     stopFile: path.join(dir, "STOP"),
