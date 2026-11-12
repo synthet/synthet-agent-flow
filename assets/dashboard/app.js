@@ -841,7 +841,7 @@
     sel.value = state.ws || "";
     const w = state.ws && state.hub && state.hub.workspaces.find((x) => x.id === state.ws);
     sel.title = w ? w.root : "Every project registered with this hub";
-    document.title = w ? `agent-flow · ${w.name}` : "agent-flow · projects";
+    document.title = w ? `Agent Flow · ${w.name}` : "Agent Flow · Projects";
   }
 
   function showView(view) {
@@ -877,7 +877,7 @@
     try {
       state.hub = await api("GET", "/api/workspaces");
     } catch (err) {
-      toast(`cannot reach agent-flow: ${err.message}`, "error");
+      toast(`cannot reach Agent Flow: ${err.message}`, "error");
       return;
     }
     $("actor").value = state.actor;
