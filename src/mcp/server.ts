@@ -36,6 +36,7 @@ export const TOOL_NAMES = [
   "flow_reopen",
   "flow_import_tasks",
   "flow_review_jev",
+  "flow_review_brief",
 ] as const;
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
@@ -443,6 +444,27 @@ export function createFlowMcpServer(opts: FlowMcpOptions = {}): { server: McpSer
     wrap(async (a) => {
       const { jevReview } = await import("../integrations/jev.js");
       return jevReview(workspace(), a.id, { cwd, dryRun: !!a.dry_run });
+    }),
+  );
+
+  server.registerTool(
+    "flow_review_brief",
+    {
+      title: "Independent review brief",
+      description:
+        "You cannot approve a ticket you worked on. Call this for a ticket in review to get an independent reviewer: a fresh reviewer actor id " +
+        "and a complete review prompt. Pass `prompt` to a subagent (Claude Code: the agent-flow:flow-reviewer agent) or another harness; the reviewer " +
+        "records its own verdict on every criterion and approves or rejects using that actor. Records review.requested.",
+      inputSchema: {
+        id,
+        harness: z.string().max(40).optional().describe("Reviewer harness prefix, e.g. claude or codex. Defaults to the caller's harness."),
+        actor,
+      },
+      annotations: WRITE,
+    },
+    wrap(async (a) => {
+      const { reviewBrief } = await import("../core/review.js");
+      return reviewBrief(workspace(), a.id, who(a.actor), { harness: a.harness });
     }),
   );
 

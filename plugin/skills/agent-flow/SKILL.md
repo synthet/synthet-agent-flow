@@ -39,9 +39,9 @@ Your actor id looks like `claude:1a2b3c4d`. If the hooks are installed they inje
    - `Unknown` never counts as a pass.
 8. **Handoff before you stop.** `agent-flow note <id> --handoff "<what changed · decisions and why · what's left · gotchas>"`.
    - If the hooks are installed, the Stop hook reminds you.
-9. **Never self-approve.** `submit` moves the ticket to review. A reviewer approves:
-   - the `flow-reviewer` subagent, when the plugin is installed,
-   - `agent-flow review --swarm`,
+9. **Never self-approve.** `submit` moves the ticket to review. An agent can approve only if it never worked on the ticket and recorded its own verdict on every criterion. To get your ticket approved, use the `flow-request-review` skill. Reviewers:
+   - an independent `flow-reviewer` subagent, given the brief from `agent-flow review <id> --brief` (MCP `flow_review_brief`),
+   - `agent-flow review <id> --swarm`,
    - or a human on the dashboard (`agent-flow serve`).
 10. **PRs reference the ticket.** Put `Refs <id>` in the PR body, plus `Closes #<n>` if the ticket is mirrored to a GitHub issue.
 
@@ -60,6 +60,7 @@ Your actor id looks like `claude:1a2b3c4d`. If the hooks are installed they inje
 
 ## Related skills
 - `flow-next`, `flow-work`, `flow-complete` — the three steps for one ticket.
+- `flow-request-review` — get your own ticket approved by an independent reviewer subagent.
 - `flow-review` — review someone else's ticket.
 - `flow-plan` — spec → tasks → tickets.
 - `flow-loop` — capped autonomous run.

@@ -42,7 +42,7 @@ A single transition table decides which actions are legal from which statuses. S
 | Gate | Rule |
 |---|---|
 | submit | handoff note since claim (`requireHandoff`), DoD passed, no AC marked Failed |
-| approve | every AC Verified (Verified requires evidence), approver ≠ owner (`allowSelfApprove`) |
+| approve | every AC Verified (Verified requires evidence), approver ≠ owner (`allowSelfApprove`). An agent or system approver must also never have claimed, started or submitted the ticket, and must have recorded the latest `Verified` on every AC itself (`independentReview`, read from the event log). Humans approve on the owner's verdicts. |
 | close | only when `requireReview` is off, or with `--force` from a human |
 | reject | reason required; `rework_count++`; at `maxAttempts` the ticket goes to `blocked` with `needs-human` |
 | force | only `human:` and `system:` actors |

@@ -31,4 +31,7 @@ risk_class: medium
    ```
 6. **Submit.** Run `agent-flow submit <id>`. It re-runs the DoD and moves the ticket to `review`.
    - `GATE_FAILED` tells you exactly what is missing. Fix it and submit again.
-7. Report the PR URL and the ticket state. Do **not** approve your own ticket. A reviewer does that: `flow-review`, the `flow-reviewer` agent, the swarm, or a human.
+7. **Get it reviewed.** Do **not** approve your own ticket; the tracker refuses it.
+   Use the `flow-request-review` skill. It gets a brief (`agent-flow review <id> --brief`) and hands it to an independent `flow-reviewer` subagent, which approves or rejects under its own reviewer identity.
+   The swarm (`agent-flow review <id> --swarm`) or a human on the dashboard can approve too.
+8. Report the PR URL, the reviewer's verdict and the ticket state.

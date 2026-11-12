@@ -34,6 +34,12 @@ export const configSchema = z.object({
   requireReview: z.boolean().default(true),
   requireHandoff: z.boolean().default(true),
   allowSelfApprove: z.boolean().default(false),
+  /**
+   * An agent or system approver must have recorded its own Verified verdict on every acceptance criterion, and must
+   * never have claimed, started or submitted the ticket. Humans approve on the owner's evidence. `agent-flow review
+   * <id> --brief` (MCP `flow_review_brief`) hands out such a reviewer identity.
+   */
+  independentReview: z.boolean().default(true),
   /** Definition-of-Done commands run before `submit` (and by the DoD hooks). */
   dod: z.array(z.string()).default([]),
   dodTimeoutMs: z.number().int().min(1000).default(10 * 60 * 1000),

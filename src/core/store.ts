@@ -763,9 +763,14 @@ export class FlowStore {
         case "approve": {
           if (!this.config.allowSelfApprove && t.owner === actor && !force) {
             throw new FlowError("GATE_FAILED", "self-approval is disabled; another agent or a human must approve", {
-              nextSteps: ["ask a reviewer (flow-reviewer subagent, swarm review, or a human on the dashboard)"],
+              nextSteps: [
+                `get an independent review: the flow-request-review skill spawns the flow-reviewer subagent with \`agent-flow review ${id} --brief\` (MCP flow_review_brief)`,
+                `or a multi-harness vote: agent-flow review ${id} --swarm`,
+                "or a human approves on the dashboard",
+              ],
             });
           }
+          if (this.config.independentReview && actorKind(actor) !== "human" && !force) this.checkIndependentReview(t, actor);
           const unverified = this.detail(id).acceptance.filter((a) => a.verdict !== "Verified");
           if (unverified.length && !force) {
             throw new FlowError("GATE_FAILED", `acceptance criteria not verified: ${unverified.map((a) => a.ac_id).join(", ")}`, {
@@ -816,6 +821,46 @@ export class FlowStore {
       this.recomputeParent(id, actor);
       return this.get(id);
     });
+  }
+
+  /**
+   * An agent (or system) approver must be independent of the work and must have checked it itself: it never claimed,
+   * started or submitted the ticket, and the latest verdict on every criterion is its own Verified. Read from the
+   * append-only event log, so a past owner or a borrowed verdict cannot pass.
+   */
+  private checkIndependentReview(t: Ticket, actor: string): void {
+    const rows = this.db
+      .prepare(
+        "SELECT action, actor, payload FROM events WHERE ticket_id = ? AND action IN ('ticket.claimed','ticket.started','ticket.submitted','ac.verified') ORDER BY seq",
+      )
+      .all(t.id) as Array<{ action: string; actor: string; payload: string }>;
+    const worked = [...new Set(rows.filter((r) => r.actor === actor && r.action !== "ac.verified").map((r) => r.action.replace("ticket.", "")))];
+    if (worked.length) {
+      throw new FlowError("GATE_FAILED", `${actor} ${worked.join(", ")} ${t.id}, so it cannot be its reviewer; an independent reviewer must approve`, {
+        details: { worked },
+        nextSteps: [`agent-flow review ${t.id} --brief  (hands a fresh reviewer identity to a subagent; skill flow-request-review)`],
+      });
+    }
+    const last = new Map<string, { actor: string; verdict: string }>();
+    for (const r of rows) {
+      if (r.action !== "ac.verified") continue;
+      const p = json<{ ac_id?: string; verdict?: string }>(r.payload, {});
+      if (p.ac_id) last.set(p.ac_id, { actor: r.actor, verdict: p.verdict ?? "" });
+    }
+    const notOwn = this.detail(t.id, { events: 0 }).acceptance.filter((a) => {
+      const l = last.get(a.ac_id);
+      return !l || l.actor !== actor || l.verdict !== "Verified";
+    });
+    if (notOwn.length) {
+      throw new FlowError(
+        "GATE_FAILED",
+        `an agent approver must check each criterion itself; ${actor} has not recorded its own Verified verdict on ${notOwn.map((a) => a.ac_id).join(", ")}`,
+        {
+          details: { not_own: notOwn.map((a) => a.ac_id) },
+          nextSteps: notOwn.map((a) => `agent-flow ac verify ${t.id} ${a.ac_id} --verdict Verified --evidence "<what you ran or read>" --actor ${actor}`),
+        },
+      );
+    }
   }
 
   private checkSubmitGates(t: Ticket, opts: TransitionOptions): void {

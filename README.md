@@ -143,6 +143,10 @@ Each import creates an epic plus tickets, and carries over dependencies, scope p
 
 Details: [docs/integrations.md](docs/integrations.md).
 
+### Independent review
+
+An agent can't approve a ticket it worked on. The tracker approves an agent only if it never claimed, started or submitted the ticket, and only on `Verified` verdicts it recorded itself on every criterion. Humans approve on the owner's evidence. To get your own ticket approved, run `agent-flow review <id> --brief` (MCP `flow_review_brief`). It returns a fresh reviewer id and a complete review prompt. Hand the prompt to an independent subagent: in Claude Code that's the `agent-flow:flow-reviewer` agent, and the `flow-request-review` skill walks through it. The subagent checks the change and approves or rejects under that id. Set `independentReview: false` to approve on the owner's verdicts.
+
 ## Reference
 
 - [docs/architecture.md](docs/architecture.md) covers the data model, concurrency, the audit chain and the security model.
