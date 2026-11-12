@@ -51,6 +51,8 @@ describe("http server", () => {
     expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
     expect(String(page.json)).toContain(server!.token);
     expect(String(page.json)).not.toContain("__FLOW_TOKEN__");
+    expect(String(page.json)).toContain("<title>Agent Flow</title>");
+    expect(String(page.json)).toContain('<span class="brand-name">Agent Flow</span>');
     expect((await call("GET", "/app.js", undefined, false)).status).toBe(200);
   });
 
