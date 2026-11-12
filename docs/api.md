@@ -20,7 +20,7 @@ Codes are `NOT_FOUND`, `INVALID_ARGUMENT`, `INVALID_TRANSITION`, `CLAIM_CONFLICT
 | lifecycle | `claim [<id>\|--next] [--label] [--lease min]` · `heartbeat` · `start` · `release [--reason]` · `block --reason --until` · `unblock` · `submit [--skip-dod]` · `approve` · `reject --reason` · `close` · `reopen --reason` · `cancel` · `promote <id>…` · `demote` |
 | agents | `prime [--ticket] [--branch]` · `branch <id>` · `dod` · `agent register --harness --skills` · `agent list` · `worktree create\|rm\|path <id>` · `hook <event>` · `statusline` · `snapshot [--session id]` |
 | sdd | `import-tasks <file\|dir> [--format auto\|framework\|speckit\|openspec\|checklist] [--spec spec.md] [--epic id] [--no-epic] [--backlog] [--dry-run]` · `import-backlog [items.md]` |
-| integrations | `github push [<id>…]\|reconcile\|pr <id>\|body <id>` · `mailbox test\|flush\|status` · `review <id> --swarm [--agents …] [--dry-run]` |
+| integrations | `github push [<id>…]\|reconcile\|pr <id>\|body <id>` · `mailbox test\|flush\|status` · `review <id> --brief [--harness h]` · `review <id> --swarm [--agents …] [--dry-run]` |
 | automation | `loop start\|run\|stop\|status [--max N] [--label l] [--harness claude\|codex] [--max-turns N]` |
 | servers | `serve [--port 8791] [--open] [--no-registry]` · `workspaces [list]\|add [dir…]\|remove <id\|dir>…\|scan [root] [--dry-run]` · `mcp` |
 | data | `export [--out f\|--stdout]` · `import [file]` · `reap` · `audit verify` |
@@ -46,6 +46,7 @@ When a lifecycle or detail command gets no `<id>`, it uses the ticket bound to t
 | `flow_transition` | write | `id, action: start\|block\|unblock\|submit\|approve\|reject\|close\|promote\|demote, reason?, unblock_condition?, skip_dod?, actor?` |
 | `flow_comment` | write | `id, body, kind: note\|handoff\|review, actor?` |
 | `flow_ac` | write | `id, op: add\|verify, ac_id?, text?, verdict?, evidence?, actor?` |
+| `flow_review_brief` | write | `id, harness?, actor?` → `{reviewer, prompt, commands, …}` for a ticket in review: hand `prompt` to an independent subagent, which acts as `reviewer`. Records `review.requested`. |
 | `flow_dep` | write | `id, depends_on, kind, remove?, actor?` |
 | `flow_cancel` | destructive | `id, reason?, confirmed` |
 | `flow_reopen` | destructive | `id, reason, confirmed` |
@@ -109,7 +110,7 @@ Hooks always exit 0 with `{}` on malformed input or internal errors (they fail o
 {
   "prefix": "af", "leaseMinutes": 30, "maxAttempts": 3,
   "wip": { "perAgent": 1, "columns": { "in_progress": 4, "review": 6 } },
-  "requireReview": true, "requireHandoff": true, "allowSelfApprove": false,
+  "requireReview": true, "requireHandoff": true, "allowSelfApprove": false, "independentReview": true,
   "dod": ["npm test"], "dodTimeoutMs": 600000, "autoExport": true,
   "defaultBranch": "main", "branchPattern": "af/{id}-{slug}", "worktreeDir": "../{repo}.worktrees",
   "loop": { "maxTickets": 5, "label": "agent-ok", "maxTurns": 80, "harness": "claude" },

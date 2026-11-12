@@ -118,8 +118,8 @@ describe("claims and leases", () => {
 });
 
 describe("lifecycle gates", () => {
-  function claimed() {
-    const ctx = makeStore();
+  function claimed(over: Parameters<typeof makeStore>[0] = {}) {
+    const ctx = makeStore(over);
     const t = ctx.store.create({ title: "feature", status: "ready", acceptance: ["returns 200", "rejects bad input"] }, H);
     ctx.store.claim(t.id, A);
     ctx.store.transition(t.id, "start", A);
@@ -147,6 +147,61 @@ describe("lifecycle gates", () => {
     const done = store.transition(id, "approve", B);
     expect(done.status).toBe("done");
     expect(done.closed_at).not.toBeNull();
+  });
+
+  it("an agent approver must check every criterion itself; a human approves on the owner's verdicts", () => {
+    const inReview = (over = {}) => {
+      const ctx = claimed(over);
+      ctx.store.verifyAcceptance(ctx.id, "AC-1", "Verified", "owner: npm test ok", A);
+      ctx.store.verifyAcceptance(ctx.id, "AC-2", "Verified", "owner: npm test ok", A);
+      ctx.store.comment(ctx.id, "handoff", "done", A);
+      ctx.store.transition(ctx.id, "submit", A);
+      return ctx;
+    };
+    const { store, id } = inReview();
+    const err = (() => {
+      try {
+        store.transition(id, "approve", B);
+      } catch (e) {
+        return e as FlowError;
+      }
+    })();
+    expect(err?.code).toBe("GATE_FAILED"); // the owner's verdicts are not B's
+    expect(err?.message).toMatch(/AC-1, AC-2/);
+    store.verifyAcceptance(id, "AC-1", "Verified", "reviewer: re-ran npm test", B);
+    expect(code(() => store.transition(id, "approve", B))).toBe("GATE_FAILED"); // AC-2 still A's
+    store.verifyAcceptance(id, "AC-2", "Verified", "reviewer: read test/orders.test.ts:40", B);
+    expect(store.transition(id, "approve", B).status).toBe("done");
+
+    // A human looks at the evidence and approves on the owner's verdicts.
+    const human = inReview();
+    expect(human.store.transition(human.id, "approve", H).status).toBe("done");
+    // The switch turns the rule off for agents.
+    const off = inReview({ independentReview: false });
+    expect(off.store.transition(off.id, "approve", B).status).toBe("done");
+  });
+
+  it("an agent that worked on the ticket cannot approve it, even after the owner changed", () => {
+    const { store, id } = claimed();
+    store.transition(id, "release", A, { reason: "handing over" });
+    store.claim(id, B);
+    for (const ac of ["AC-1", "AC-2"]) store.verifyAcceptance(id, ac, "Verified", "npm test ok", B);
+    store.comment(id, "handoff", "done", B);
+    store.transition(id, "submit", B);
+    // A is no longer the owner, but it claimed the ticket: not independent.
+    for (const ac of ["AC-1", "AC-2"]) store.verifyAcceptance(id, ac, "Verified", "A re-checked", A);
+    const err = (() => {
+      try {
+        store.transition(id, "approve", A);
+      } catch (e) {
+        return e as FlowError;
+      }
+    })();
+    expect(err?.code).toBe("GATE_FAILED");
+    expect(err?.message).toMatch(/claimed/);
+    const R = "claude:review-x";
+    for (const ac of ["AC-1", "AC-2"]) store.verifyAcceptance(id, ac, "Verified", "independent check", R);
+    expect(store.transition(id, "approve", R).status).toBe("done");
   });
 
   it("failed DoD blocks submit", () => {

@@ -226,18 +226,34 @@ register({
 register({
   name: "review",
   group: "integrations",
-  summary: "Review a ticket in review: multi-harness via synthet-agent-swarm (--swarm), or advisory Jev evidence check (--jev); recorded as a review comment",
-  usage: "review <id> --swarm [--agents codex,claude] [--dry-run] | review <id> --jev [--dry-run]",
-  options: { swarm: { type: "boolean" }, jev: { type: "boolean" }, agents: { type: "string" }, "dry-run": { type: "boolean" } },
+  summary:
+    "Review a ticket in review: an independent reviewer brief for a subagent (--brief), multi-harness via synthet-agent-swarm (--swarm), or advisory Jev evidence check (--jev)",
+  usage: "review <id> --brief [--harness claude] | review <id> --swarm [--agents codex,claude] [--dry-run] | review <id> --jev [--dry-run]",
+  options: {
+    brief: { type: "boolean" },
+    harness: { type: "string" },
+    swarm: { type: "boolean" },
+    jev: { type: "boolean" },
+    agents: { type: "string" },
+    "dry-run": { type: "boolean" },
+  },
   async run(ctx) {
-    if (bool(ctx.values.swarm) && bool(ctx.values.jev)) throw new FlowError("INVALID_ARGUMENT", "pass --swarm or --jev, not both");
+    if ([ctx.values.brief, ctx.values.swarm, ctx.values.jev].filter(Boolean).length > 1) throw new FlowError("INVALID_ARGUMENT", "pass one of --brief, --swarm or --jev");
+    if (bool(ctx.values.brief)) {
+      // For a ticket you worked on: hand the prompt to an independent subagent, which reviews and approves as `reviewer`.
+      const { reviewBrief } = await import("../../core/review.js");
+      const brief = reviewBrief(ctx.ws(), ctx.positionals[0] ?? "", ctx.actor, { harness: str(ctx.values.harness) });
+      return ctx.print(brief, () => `reviewer: ${brief.reviewer}\n\n${brief.prompt}`);
+    }
     if (bool(ctx.values.jev)) {
       const { jevReview, jevComment } = await import("../../integrations/jev.js");
       const res = await jevReview(ctx.ws(), ctx.positionals[0] ?? "", { cwd: ctx.cwd, dryRun: bool(ctx.values["dry-run"]) });
       if ("dry_run" in res) return ctx.print(res.dry_run, () => JSON.stringify(res.dry_run, null, 2));
       return ctx.print(res, () => jevComment(res));
     }
-    if (!bool(ctx.values.swarm)) throw new FlowError("INVALID_ARGUMENT", "use the flow-review skill for manual review, or pass --swarm or --jev");
+    if (!bool(ctx.values.swarm)) {
+      throw new FlowError("INVALID_ARGUMENT", "pass --brief (independent subagent reviewer), --swarm or --jev; or follow the flow-review skill");
+    }
     const { swarmReview } = await import("../../integrations/swarm.js");
     const ws = ctx.ws();
     const res = await swarmReview(ws, ctx.positionals[0] ?? "", { cwd: ctx.cwd, harnesses: list(ctx.values.agents), dryRun: bool(ctx.values["dry-run"]) });

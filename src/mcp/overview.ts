@@ -23,7 +23,9 @@ backlog → ready → claimed → in_progress → review → done   (+ blocked, 
   (test output, command, file:line). Unknown never counts as a pass.
 - Before \`submit\`: write a **handoff** note (\`flow_comment {kind:"handoff"}\`): what changed, decisions and why, what's left, gotchas.
 - \`submit\` runs the project's Definition-of-Done commands and refuses on red.
-- \`approve\` is done by someone other than the owner (reviewer agent, swarm review, or a human). Rejections send the ticket back;
+- \`approve\` is done by someone who did not work on the ticket. An agent approver must record its own Verified verdict on every
+  criterion. For your own ticket, call \`flow_review_brief {id}\` and hand its \`prompt\` to a fresh subagent (Claude Code:
+  agent-flow:flow-reviewer); it acts with \`actor: <reviewer>\`. Swarm review or a human can approve too. Rejections send the ticket back;
   after \`maxAttempts\` rejections it escalates to **blocked + needs-human**.
 
 ## Discovered work

@@ -207,8 +207,10 @@ export async function swarmReview(
   const allPass = detail.acceptance.every((a) => review.ac[a.ac_id]?.value === "pass");
   // Auto-approval needs a real majority (≥2 parsed judges), never a single harness.
   if (ws.config.swarm.autoApproveOnMajority && review.verdict === "approve" && allPass && review.parsed.length >= 2) {
+    // Record the swarm's own verdict on every criterion, including ones the owner already marked: the independent-review
+    // gate approves only on the approver's own verdicts.
     for (const a of detail.acceptance) {
-      if (a.verdict !== "Verified") ws.store.verifyAcceptance(id, a.ac_id, "Verified", `swarm majority pass ${JSON.stringify(review.ac[a.ac_id].counts)}`, ACTOR);
+      ws.store.verifyAcceptance(id, a.ac_id, "Verified", `swarm majority pass ${JSON.stringify(review.ac[a.ac_id].counts)}`, ACTOR);
     }
     ws.store.transition(id, "approve", ACTOR);
     approved = true;

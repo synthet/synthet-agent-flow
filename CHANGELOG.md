@@ -5,10 +5,12 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- Independent review: `agent-flow review <id> --brief` (MCP `flow_review_brief`) returns a fresh reviewer identity and a complete review prompt for a subagent. The `flow-request-review` skill hands that prompt to the `flow-reviewer` agent, and `flow-complete` now ends by requesting review. Plugin 0.2.0.
 - `run.cmd`: starts the dashboard on Windows, or opens it if it is already running.
 - CI runs on `windows-latest`.
 
 ### Changed
+- An agent or system approver must never have claimed, started or submitted the ticket, and must record its own `Verified` verdict on every criterion before `approve` (`independentReview`, on by default). Humans still approve on the owner's evidence. Swarm auto-approval records its own verdicts.
 - Plugin skills are safe to install at user level: they apply only in projects with `.agent-flow/`, name the manual commands when hooks are absent, and no longer use `git push -u`.
 - Upgraded zod to 4 and vitest to 5, which clears `npm audit`.
 - The dashboard default port is now 8791, because 8790 clashes with AI Quotas. Projects with `server.port` set in their config keep it.

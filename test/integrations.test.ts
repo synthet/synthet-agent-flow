@@ -277,6 +277,18 @@ describe("swarm review", () => {
     }
   });
 
+  it("auto-approval records the swarm's own verdict even on criteria the owner already verified", async () => {
+    const { ws, dir, id } = await inReview({ autoApproveOnMajority: true });
+    // The owner's own Verified verdict is not enough for an independent approver.
+    ws.store.verifyAcceptance(id, "AC-1", "Verified", "owner says it works", "claude:a");
+    const res = await swarmReview(ws, id, { cwd: dir }, fakeMcp(() => MULTI).open);
+    expect(res.approved).toBe(true);
+    expect(ws.store.get(id).status).toBe("done");
+    const verdicts = ws.store.events({ ticketId: id, limit: 100 }).filter((e) => e.action === "ac.verified");
+    expect(verdicts.at(-1)).toMatchObject({ actor: "system:swarm", payload: { ac_id: "AC-1", verdict: "Verified" } });
+    ws.close();
+  });
+
   it("single harness: reads that judge's reply file, never auto-approves", async () => {
     const { ws, dir, id } = await inReview({ autoApproveOnMajority: true });
     mkdirSync(path.join(dir, ".agent-runs", "r1"), { recursive: true });

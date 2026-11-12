@@ -12,6 +12,7 @@ This plugin connects Claude Code to [agent-flow](https://github.com/synthet/synt
   - `/agent-flow:flow-next` claims the next ticket and sets up its branch or worktree.
   - `/agent-flow:flow-work` implements test-first against the acceptance criteria.
   - `/agent-flow:flow-complete` runs DoD, pushes, opens the PR, writes a handoff and submits.
+  - `/agent-flow:flow-request-review` gets your own ticket approved by an independent `flow-reviewer` subagent.
   - `/agent-flow:flow-review` is the review gate (optionally with synthet-agent-swarm).
   - `/agent-flow:flow-plan` turns a spec into tasks, then an epic and tickets.
   - `/agent-flow:flow-loop` runs a capped autonomous loop.
@@ -26,7 +27,7 @@ This plugin connects Claude Code to [agent-flow](https://github.com/synthet/synt
   - StopFailure halts the loop.
   - PreCompact and SessionEnd record transcript pointers.
   - TaskCompleted is an optional DoD gate.
-- **Agents**: `flow-reviewer` (independent AC verification) and `flow-planner` (spec → ticket graph).
+- **Agents**: `flow-reviewer` (independent AC verification under its own reviewer id; the `flow-request-review` skill spawns it with a brief) and `flow-planner` (spec → ticket graph).
 - **MCP**: the `agent-flow` server with `flow_*` tools and `flow://workflow/overview`.
 
 ## Setup

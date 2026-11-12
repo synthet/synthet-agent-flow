@@ -12,13 +12,16 @@ risk_class: medium
 
 # flow-review — the review gate
 
-You must not be the ticket's owner. The tracker refuses self-approval by default.
+You must not have worked on the ticket: an agent that claimed, started or submitted it cannot approve it.
+If it is your own ticket, use `flow-request-review` instead.
 
 1. **Pick a ticket.** Use `$ARGUMENTS`, or the oldest ticket in `agent-flow list --status review`.
 2. **Load it.** Run `agent-flow show <id>`. Read the spec, the criteria, the handoff note, the branch and the PR.
 3. **Inspect the change.** Run `git fetch && git diff <default-branch>...<branch>`, and read the tests.
    Run the verification commands named in the criteria and the DoD (`agent-flow dod`) on the branch.
-4. **Give each criterion a verdict.** Run `agent-flow ac verify <id> AC-n --verdict Verified|Failed --evidence "<what you ran / saw>"`.
+4. **Give each criterion your own verdict.** Run `agent-flow ac verify <id> AC-n --verdict Verified|Failed --evidence "<what you ran / saw>"`.
+   An agent approver needs its own `Verified` on every criterion. The owner's verdicts are claims to check; the tracker will not approve on them.
+   If a review brief gave you a reviewer id, add `--actor <reviewer>` to every command.
 5. **Optional: multi-model review.** Run `agent-flow review --swarm <id>`. This needs synthet-agent-swarm and records each harness's vote as a review comment.
    For a quick check on the evidence alone, run `agent-flow review --jev <id>` (needs `jev.path`; one paid call). Jev reads the recorded evidence, not the code, and only comments.
    Votes are evidence, not ground truth. Read the dissent.
