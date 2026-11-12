@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - CI runs on `windows-latest`.
 
 ### Changed
+- Plugin 0.2.1: the `agent-flow` skill explains how to clear the derived `tickets.jsonl` after a merge, and says never to run `approve` on your own ticket, even as a demonstration.
 - An agent or system approver must never have claimed, started or submitted the ticket, and must record its own `Verified` verdict on every criterion before `approve` (`independentReview`, on by default). Humans still approve on the owner's evidence. Swarm auto-approval records its own verdicts.
 - Plugin skills are safe to install at user level: they apply only in projects with `.agent-flow/`, name the manual commands when hooks are absent, and no longer use `git push -u`.
 - Upgraded zod to 4 and vitest to 5, which clears `npm audit`.
