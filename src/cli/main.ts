@@ -9,6 +9,7 @@ import { attachNotifiers, flushOutbox } from "../integrations/notify.js";
 import "./commands/core.js";
 import "./commands/extra.js";
 import "./commands/workspaces.js";
+import "./commands/triage.js";
 
 const GLOBAL: Options = {
   json: { type: "boolean" },
