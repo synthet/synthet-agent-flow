@@ -19,7 +19,7 @@ The note was written from GitHub pages, so some of it is stale. This spec keeps 
 | No spec AC id on tickets | The framework T-n importer keeps the spec's `AC-n` ids and text (`--spec`). The Spec Kit, OpenSpec and markdown importers mint local `AC-1..` | Partly true. Gap in the non-framework importers only |
 | Standardize on Spec Kit task syntax | Only the framework table carries spec AC ids today | Disagree. The framework T-n table is the standard; Spec Kit stays importable |
 | The framework spec template lacks EARS ACs | `/spec` already requires EARS sentences numbered `AC-1..` | Already done |
-| No cost, harness or tokens per ticket | `tickets` has none of them. `harness` appears only in the `loop.run_started` event | Confirmed |
+| No cost, harness or tokens per ticket | `tickets` has none of them. `harness` is already recorded per session (`sessions.harness`, written by the hooks, read by `store.sessions(ticketId)`) and in the `loop.run_started` event. Nothing records cost or tokens | Partly true. Cost and tokens are missing; reuse `sessions.harness` |
 | No per-epic budget | The loop caps tickets, turns and continuations (`src/hooks/index.ts`). There is no dollar or wall-clock budget | Confirmed |
 | No spec-conformance or judge-calibration loop | Neither command exists | Confirmed |
 | Jev model recorded per decision | `jev.reviewed` records `model` | Already done |
