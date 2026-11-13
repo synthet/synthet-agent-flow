@@ -1,6 +1,6 @@
 {
   "name": "agent-flow",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent-oriented project management: ready queue with atomic claims, ticket lifecycle skills, context/loop/safety hooks and the agent-flow MCP server.",
   "author": { "name": "synthet" },
   "homepage": "https://github.com/synthet/synthet-agent-flow",

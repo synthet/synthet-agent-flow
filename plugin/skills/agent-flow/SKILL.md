@@ -43,7 +43,17 @@ Your actor id looks like `claude:1a2b3c4d`. If the hooks are installed they inje
    - an independent `flow-reviewer` subagent, given the brief from `agent-flow review <id> --brief` (MCP `flow_review_brief`),
    - `agent-flow review <id> --swarm`,
    - or a human on the dashboard (`agent-flow serve`).
+
+   Never run `approve` on your own ticket, not even to show that the gate refuses it; cite the gate's test instead. Spawn a reviewer for your own ticket only when the user has asked for one. An approval you arranged for your own work is what the gate exists to stop.
 10. **PRs reference the ticket.** Put `Refs <id>` in the PR body, plus `Closes #<n>` if the ticket is mirrored to a GitHub issue.
+11. **After a merge, regenerate the snapshot; don't commit it.** `.agent-flow/tickets.jsonl` is derived from the database, which is the truth. If the hooks are installed, they and the dashboard's lease reaper rewrite it after your last commit, so after a squash merge it is usually dirty and blocks `git switch`:
+    ```
+    git checkout -- .agent-flow/tickets.jsonl
+    git switch <default-branch>
+    git fetch && git merge --ff-only origin/<default-branch>
+    agent-flow export
+    ```
+    The re-exported snapshot carries current ticket states. Commit it in a `chore(tracker)` PR, never straight to the default branch.
 
 ## Lifecycle at a glance
 `backlog → ready → claimed → in_progress → review → done` (plus `blocked`, `cancelled`).

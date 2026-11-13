@@ -34,3 +34,4 @@ A fresh subagent with its own reviewer identity meets both. Your evidence is som
 5. **Report** the reviewer id, its verdict table and the ticket state.
 
 Never record verdicts or approve under the reviewer id yourself. The id is for the subagent, and the audit log shows who requested the review.
+Don't run `approve` under your own id either, not even to show it fails. If the user only asked you to build or ship something, ask before spawning a reviewer for your own ticket.
