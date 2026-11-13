@@ -95,7 +95,7 @@ backlog ─promote─▶ ready ─claim─▶ claimed ─first commit─▶ in_p
 | `PostToolUse` | On the first real commit, moves the ticket from `claimed` to `in_progress`. Sends heartbeats and records the commit in the session row. If you commit or run `gh pr create` while holding no ticket, it reminds you once per session to create or claim one (`hooks.untrackedNudge`, on by default). |
 | `Stop` | Loop controller: keeps going while labelled ready work remains. Honours `stop_hook_active`, the ticket cap, the `.agent-flow/STOP` file and no-progress detection. Outside a loop it nudges once for a missing handoff. |
 | `StopFailure` / `PreCompact` / `SessionEnd` / `TaskCompleted` | `StopFailure` halts the loop on API errors. `PreCompact` and `SessionEnd` record transcript pointers (and flag a missing handoff). `TaskCompleted` is an optional DoD gate. |
-| Skills | `/agent-flow:flow-next`, `flow-work`, `flow-complete`, `flow-review`, `flow-plan`, `flow-loop`, `flow-land`, `flow-status`, plus the model-invoked `agent-flow` rules skill. |
+| Skills | `/agent-flow:flow-next`, `flow-work`, `flow-complete`, `flow-review`, `flow-plan`, `flow-loop`, `flow-land`, `flow-status`, `flow-triage`, plus the model-invoked `agent-flow` rules skill. |
 | Agents | `flow-reviewer` verifies AC independently. `flow-planner` turns a spec into a ticket graph. |
 | MCP | The `flow_*` tools (ready, claim, transition, ac, comment, …) and the `flow://workflow/overview` resource. |
 | Mod | `/flow-board` pane (ticket, AC checklist, ready queue), a band shown during review or when blocked, a status line entry, and toasts. |

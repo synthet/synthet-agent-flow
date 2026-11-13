@@ -18,6 +18,7 @@ This plugin connects Claude Code to [agent-flow](https://github.com/synthet/synt
   - `/agent-flow:flow-loop` runs a capped autonomous loop.
   - `/agent-flow:flow-land` wraps up a session.
   - `/agent-flow:flow-status` summarises the board.
+  - `/agent-flow:flow-triage` finds stale tickets; an agent describes them, Jev decides flag/cancel/keep, cancels need approval.
   - `agent-flow` holds the core rules and is model-invoked.
 - **Hooks**
   - SessionStart injects the ticket bound to your branch (spec, AC, last handoff) or the ready queue, and exports your actor id.
