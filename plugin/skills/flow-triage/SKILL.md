@@ -31,6 +31,13 @@ in a scratch folder, not in a repo.
    reopened), so it needs the owner's per-id approval: ask once with ids and titles, then pass
    `--approve T0003,T0007 --approval-note "<owner's words>"`. In a repo whose mailbox or GitHub mirror is enabled,
    every write needs approval, because it leaves the machine. Tickets in review are only ever flagged.
+**GitHub issues** use the same steps with `--source github` on scan: open issues untouched 60 days
+(`--stale-days`) in repos owned by the authenticated `gh` user (`--owner login,...` to widen; clones of upstream
+projects are skipped), skipping `pinned`, `keep`, `security` and `stale-candidate` labels. Evidence: merged PRs and
+commits mentioning `#N`, named paths that no longer exist, near-duplicate titles. Jev chooses `close_completed`,
+`close_not_planned`, `duplicate`, `needs_info` or `keep`. Every one of those writes to GitHub, so each id needs the
+owner's `--approve`; apply re-checks that the issue is still open and unchanged.
+
 6. **Verify**: `agent-flow triage verify --manifest <manifest>`; `triage restore` prints how to undo flags.
 7. **Report** a table: ticket → description → Jev choice and confidence → action; then held and skipped items.
 
