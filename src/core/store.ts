@@ -8,6 +8,7 @@ import { openDatabase } from "./db.js";
 import { FlowError } from "./errors.js";
 import { renameWithRetry } from "./fsutil.js";
 import { newTicketId } from "./ids.js";
+import { scrubMachinePaths, scrubNullable } from "./redact.js";
 import { RULES, canTransition, type Action } from "./states.js";
 import type {
   AcceptanceCriterion,
@@ -1168,7 +1169,12 @@ export class FlowStore {
 
   // ─────────────────────────── snapshot (JSONL) ───────────────────────────
 
-  /** Deterministic JSONL: one ticket per line, sorted by id, canonical key order. */
+  /**
+   * Deterministic JSONL: one ticket per line, sorted by id, canonical key order.
+   * Free text (title, body, block reasons, AC text and evidence, comments) is scrubbed of machine paths,
+   * because the file is committed; the database keeps the original. Structured fields such as
+   * `external_key` and `spec_ref` are left alone so re-imports stay idempotent.
+   */
   exportSnapshot(): string {
     const ids = (this.db.prepare("SELECT id FROM tickets ORDER BY id").all() as Array<{ id: string }>).map((r) => r.id);
     const lines = ids.map((id) => {
@@ -1180,9 +1186,13 @@ export class FlowStore {
       const { events: _e, sessions: _s, depends_on: _d, dependents: _x, children: _c, blocked_by: _b, ac_total: _t, ac_verified: _v, parent: _p, ...rest } = d;
       return canonical({
         ...rest,
+        title: scrubMachinePaths(rest.title),
+        body: scrubMachinePaths(rest.body),
+        blocked_reason: scrubNullable(rest.blocked_reason),
+        unblock_condition: scrubNullable(rest.unblock_condition),
         deps,
-        acceptance: d.acceptance.map(({ updated_at: _u, ...a }) => a),
-        comments: d.comments.map(({ id: _i, ...c }) => c),
+        acceptance: d.acceptance.map(({ updated_at: _u, ...a }) => ({ ...a, text: scrubMachinePaths(a.text), evidence: scrubNullable(a.evidence) })),
+        comments: d.comments.map(({ id: _i, ...c }) => ({ ...c, body: scrubMachinePaths(c.body) })),
       });
     });
     return lines.length ? `${lines.join("\n")}\n` : "";
