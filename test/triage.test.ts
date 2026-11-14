@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Runner } from "../src/integrations/exec.js";
 import {
@@ -155,4 +155,71 @@ describe("triage", () => {
       if (saved !== undefined) process.env.AGENT_FLOW_SWARM_ENTRY = saved;
     }
   });
+
+  it("cli: scan without threshold flags applies the 30/14/7 defaults", async () => {
+    const { dir, ids } = setup();
+    ageSnapshot(dir, { [ids.backlog]: { updated_at: daysAgo(31) }, [ids.review]: { updated_at: daysAgo(8) } });
+    const out = path.join(dir, "plan.json");
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += `${s}\n`), stderr: () => undefined };
+    expect(await main(["triage", "scan", "--repo", dir, "--out", out, "--json", "-C", dir, "--actor", "claude:t"], io)).toBe(0);
+    const plan = JSON.parse(readFileSync(out, "utf8")) as TriagePlan;
+    expect([...byTicket(plan).keys()].sort()).toEqual([ids.backlog, ids.review, ids.waiting].sort());
+  });
+
+  it("scan rules: blocked days, claim churn, stale-candidate and live leases on eligible statuses", async () => {
+    const { dir, ids } = setup();
+    ageSnapshot(dir, {
+      [ids.waiting]: { status: "blocked", updated_at: daysAgo(15), deps: [] },
+      [ids.ready]: { attempts: 3 },
+      [ids.backlog]: { labels: [TRIAGE_LABEL], updated_at: daysAgo(90) },
+      [ids.review]: { lease_until: new Date(Date.now() + 3_600_000).toISOString(), updated_at: daysAgo(90) },
+    });
+    const items = byTicket(await scanTriage({ repo: dir, run: okRun }));
+    expect(items.get(ids.waiting)?.why).toBe("blocked 15d");
+    expect(items.get(ids.ready)?.why).toBe("3 expired or released claims");
+    expect(items.has(ids.backlog)).toBe(false);
+    expect(items.has(ids.review)).toBe(false);
+  });
+
+  it("apply re-reads the repo config: a mirror enabled after the scan gates the write", async () => {
+    const { dir, ids } = setup();
+    const plan = await scanTriage({ repo: dir, run: okRun, now: later() });
+    const it0 = byTicket(plan).get(ids.backlog)!;
+    decideTriage(plan, { answers: { [it0.id]: { choice: "flag", confidence: 0.9 } } });
+    expect(it0.notify_remote).toBe(false);
+    const cfgFile = path.join(dir, ".agent-flow", "config.json");
+    const cfg = JSON.parse(readFileSync(cfgFile, "utf8"));
+    cfg.mailbox = { ...cfg.mailbox, enabled: true };
+    writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+    const res = applyTriage(plan, { apply: true, actor: "housekeeping:t", now: later() });
+    expect(res.manifest.skipped[0]?.why).toMatch(/needs --approve/);
+    const ws = openWorkspaceAt(dir);
+    expect(ws.store.get(ids.backlog).labels).not.toContain(TRIAGE_LABEL);
+    ws.close();
+  });
+
+  it("describe removes its staging folder after a live run", async () => {
+    const { dir } = setup();
+    const plan = await scanTriage({ repo: dir, run: okRun, now: later() });
+    let staged = "";
+    const swarmRun: Runner = async (argv) => {
+      staged = path.dirname(argv[argv.indexOf("--request") + 1]);
+      return { code: 0, stdout: JSON.stringify({ ok: true, reply: "{}" }), stderr: "", timedOut: false, ms: 1 };
+    };
+    await describeTriage(plan, { swarm: "swarm.js", run: swarmRun });
+    expect(staged).not.toBe("");
+    expect(existsSync(staged)).toBe(false);
+  });
 });
+
+function daysAgo(n: number): string {
+  return new Date(Date.now() - n * DAY).toISOString();
+}
+
+/** Rewrite fields of committed snapshot lines, to model tickets that have aged. */
+function ageSnapshot(dir: string, patch: Record<string, Record<string, unknown>>) {
+  const file = path.join(dir, ".agent-flow", "tickets.jsonl");
+  const lines = readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l) as { id: string });
+  writeFileSync(file, `${lines.map((t) => JSON.stringify({ ...t, ...(patch[t.id] ?? {}) })).join("\n")}\n`);
+}
