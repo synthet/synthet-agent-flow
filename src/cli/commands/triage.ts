@@ -23,7 +23,7 @@ register({
   group: "tickets",
   summary: "Stale-ticket housekeeping: scan | describe | jev | decide | apply | verify | restore (docs/housekeeping-protocol.md)",
   usage: [
-    "triage scan (--root dir | --repo dir) --out plan.json [--stale-days 30] [--blocked-days 14] [--review-days 7]",
+    "triage scan (--root dir | --repo dir) --out plan.json [--source tickets|github [--owner login,...]] [--stale-days 30 (github: 60)] [--blocked-days 14] [--review-days 7]",
     "triage describe --plan plan.json --swarm <dist/index.js> [--harness claude] [--max-items 40] [--budget-usd n] [--dry-run]",
     "triage jev --plan plan.json",
     "triage decide --plan plan.json --answers answers.json [--min-confidence 0.5]",
@@ -32,6 +32,8 @@ register({
   ].join("\n       "),
   options: {
     root: { type: "string" },
+    source: { type: "string" },
+    owner: { type: "string" },
     repo: { type: "string" },
     out: { type: "string" },
     plan: { type: "string" },
@@ -58,7 +60,9 @@ register({
     switch (step) {
       case "scan": {
         const out = need(v.out, "out");
-        const plan = await t.scanTriage({
+        const source = str(v.source) ?? "tickets";
+        if (source !== "tickets" && source !== "github") throw new FlowError("INVALID_ARGUMENT", "--source must be tickets or github");
+        const plan = source === "github" ? await scanGithub(v) : await t.scanTriage({
           root: str(v.root) && path.resolve(str(v.root) as string),
           repo: str(v.repo),
           rules: { staleDays: int(v["stale-days"]), blockedDays: int(v["blocked-days"]), reviewDays: int(v["review-days"]) },
@@ -102,29 +106,41 @@ register({
       }
       case "apply": {
         const file = need(v.plan, "plan");
-        const res = t.applyTriage(readJson(file), {
+        const plan = readJson<Awaited<ReturnType<typeof t.scanTriage>>>(file);
+        const res = t.applyTriage(plan, {
           apply: bool(v.apply),
           actor: ctx.actor,
           approve: list(v.approve),
           approvalNote: str(v["approval-note"]) ?? null,
           planFile: file,
         });
+        const g = await import("../../integrations/triage-github.js");
+        const issues = await g.applyIssues(plan, { apply: bool(v.apply), approve: list(v.approve) });
+        if (issues.done.length) res.manifest.issues = issues.done;
+        res.manifest.skipped.push(...issues.skipped);
+        res.log.push(...issues.log);
         let manifestFile: string | undefined;
-        if (!res.dry_run && (res.manifest.tickets.length || res.manifest.skipped.length)) {
+        if (!res.dry_run && (res.manifest.tickets.length || res.manifest.issues?.length || res.manifest.skipped.length)) {
           manifestFile = path.join(path.dirname(file), `manifest-triage-${res.manifest.applied.replace(/[:.]/g, "")}.json`);
           writeJson(manifestFile, res.manifest);
         }
-        const out = { dry_run: res.dry_run, applied: res.manifest.tickets.length, skipped: res.manifest.skipped, manifest: manifestFile, log: res.log };
+        const out = { dry_run: res.dry_run, applied: res.manifest.tickets.length + (res.manifest.issues?.length ?? 0), skipped: res.manifest.skipped, manifest: manifestFile, log: res.log };
         ctx.print(out, () => res.log.join("\n") || "nothing to do");
         return res.manifest.skipped.length && !res.dry_run ? 1 : 0;
       }
       case "verify": {
-        const res = t.verifyTriage(readJson(need(v.manifest, "manifest")));
+        const manifest = readJson<ReturnType<typeof t.applyTriage>["manifest"]>(need(v.manifest, "manifest"));
+        const g = await import("../../integrations/triage-github.js");
+        const base = t.verifyTriage(manifest);
+        const problems = [...base.problems, ...(await g.verifyIssues(manifest.issues ?? []))];
+        const res = { ok: problems.length === 0, problems };
         ctx.print(res, () => (res.ok ? "ok" : res.problems.join("\n")));
         return res.ok ? 0 : 1;
       }
       case "restore": {
-        const lines = t.restoreTriage(readJson(need(v.manifest, "manifest")));
+        const manifest = readJson<ReturnType<typeof t.applyTriage>["manifest"]>(need(v.manifest, "manifest"));
+        const g = await import("../../integrations/triage-github.js");
+        const lines = [...t.restoreTriage(manifest), ...g.restoreIssues(manifest.issues ?? [])];
         return ctx.print({ commands: lines }, () => lines.join("\n"));
       }
       default:
@@ -132,3 +148,12 @@ register({
     }
   },
 });
+
+async function scanGithub(v: Record<string, unknown>) {
+  const { TOOL } = await import("../../integrations/triage.js");
+  const g = await import("../../integrations/triage-github.js");
+  const root = str(v.root);
+  const found = await g.scanIssues({ root: root && path.resolve(root), repo: str(v.repo), staleDays: int(v["stale-days"]), owners: list(v.owner) });
+  found.items.forEach((it, i) => (it.id = `T${String(i + 1).padStart(4, "0")}`));
+  return { tool: TOOL, version: 1 as const, root: path.resolve(root ?? str(v.repo) ?? "."), scanned: new Date().toISOString(), ...found };
+}
