@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig, type FlowConfig } from "../core/config.js";
@@ -149,7 +149,9 @@ export async function scanTriage(opts: {
   now?: number;
   run?: Runner;
 }): Promise<TriagePlan> {
-  const rules = { ...DEFAULT_RULES, ...opts.rules };
+  // A flag that was not given arrives as `undefined`; it must not override the default.
+  const given = Object.entries(opts.rules ?? {}).filter(([, v]) => typeof v === "number" && Number.isFinite(v));
+  const rules: TriageRules = { ...DEFAULT_RULES, ...Object.fromEntries(given) };
   const now = opts.now ?? Date.now();
   const run = opts.run ?? defaultRunner;
   const plan: TriagePlan = {
@@ -265,57 +267,62 @@ export async function describeTriage(
   const byRepo = new Map<string, TriageItem[]>();
   for (const it of todo) byRepo.set(it.repo_path, [...(byRepo.get(it.repo_path) ?? []), it]);
   let n = 0;
-  for (const [repo, items] of byRepo) {
-    const snapshot = new Map(readSnapshot(flowPaths(repo, { exact: true }).snapshot).map((t) => [t.id, t]));
-    const batches: TriageItem[][] = [];
-    let current: TriageItem[] = [];
-    let size = DESCRIBE_TASK.length;
-    const blocks = new Map(items.map((it) => [it.id, ticketBlock(snapshot.get(it.ticket) ?? { id: it.ticket }, it)]));
-    for (const it of items) {
-      const len = (blocks.get(it.id) ?? "").length + 2;
-      if (current.length && size + len > TASK_LIMIT) {
-        batches.push(current);
-        current = [];
-        size = DESCRIBE_TASK.length;
+  try {
+    for (const [repo, items] of byRepo) {
+      const snapshot = new Map(readSnapshot(flowPaths(repo, { exact: true }).snapshot).map((t) => [t.id, t]));
+      const batches: TriageItem[][] = [];
+      let current: TriageItem[] = [];
+      let size = DESCRIBE_TASK.length;
+      const blocks = new Map(items.map((it) => [it.id, ticketBlock(snapshot.get(it.ticket) ?? { id: it.ticket }, it)]));
+      for (const it of items) {
+        const len = (blocks.get(it.id) ?? "").length + 2;
+        if (current.length && size + len > TASK_LIMIT) {
+          batches.push(current);
+          current = [];
+          size = DESCRIBE_TASK.length;
+        }
+        current.push(it);
+        size += len;
       }
-      current.push(it);
-      size += len;
-    }
-    if (current.length) batches.push(current);
-    for (const batch of batches) {
-      const task = clip([DESCRIBE_TASK, "", ...batch.map((it) => blocks.get(it.id) ?? "")].join("\n\n"), 7_900);
-      const request: Record<string, unknown> = { task, harnesses: [opts.harness ?? "claude"], mode: "explain", timeoutMs: opts.timeoutMs ?? 300_000 };
-      if (opts.budgetUsd) request.budgetUsd = opts.budgetUsd;
-      const file = path.join(staging, `request-${n++}.json`);
-      writeFileSync(file, JSON.stringify(request, null, 1));
-      result.requests.push({ repo: path.basename(repo), tickets: batch.map((b) => b.ticket), file });
-      if (opts.dryRun || !entry) continue;
-      const argv = entry.endsWith(".js") ? ["node", entry] : [entry];
-      const r = await run([...argv, "run", "--request", file], {
-        cwd: repo,
-        env: { ...process.env, WORKSPACE_ROOT: repo },
-        timeoutMs: (opts.timeoutMs ?? 300_000) + 60_000,
-      });
-      let reply = "";
-      try {
-        const lines = r.stdout.trim().split(/\r?\n/);
-        const out = JSON.parse(lines[lines.length - 1] ?? "{}") as { ok?: boolean; reply?: string };
-        if (out.ok && typeof out.reply === "string") reply = out.reply;
-      } catch {
-        /* fall through: undescribed */
-      }
-      const got = lastJsonObject(reply) ?? {};
-      if (!reply) result.errors.push({ repo: path.basename(repo), error: clip((r.stderr || r.stdout || `exit ${r.code}`).trim(), 300) });
-      for (const it of batch) {
-        const text = got[it.ticket];
-        if (typeof text === "string" && text.trim()) {
-          it.description = clip(redactHome(redactSecrets(text.trim()), os.homedir()), 600);
-          result.described++;
-        } else {
-          result.undescribed.push(it.id);
+      if (current.length) batches.push(current);
+      for (const batch of batches) {
+        const task = clip([DESCRIBE_TASK, "", ...batch.map((it) => blocks.get(it.id) ?? "")].join("\n\n"), 7_900);
+        const request: Record<string, unknown> = { task, harnesses: [opts.harness ?? "claude"], mode: "explain", timeoutMs: opts.timeoutMs ?? 300_000 };
+        if (opts.budgetUsd) request.budgetUsd = opts.budgetUsd;
+        const file = path.join(staging, `request-${n++}.json`);
+        writeFileSync(file, JSON.stringify(request, null, 1));
+        result.requests.push({ repo: path.basename(repo), tickets: batch.map((b) => b.ticket), file });
+        if (opts.dryRun || !entry) continue;
+        const argv = entry.endsWith(".js") ? ["node", entry] : [entry];
+        const r = await run([...argv, "run", "--request", file], {
+          cwd: repo,
+          env: { ...process.env, WORKSPACE_ROOT: repo },
+          timeoutMs: (opts.timeoutMs ?? 300_000) + 60_000,
+        });
+        let reply = "";
+        try {
+          const lines = r.stdout.trim().split(/\r?\n/);
+          const out = JSON.parse(lines[lines.length - 1] ?? "{}") as { ok?: boolean; reply?: string };
+          if (out.ok && typeof out.reply === "string") reply = out.reply;
+        } catch {
+          /* fall through: undescribed */
+        }
+        const got = lastJsonObject(reply) ?? {};
+        if (!reply) result.errors.push({ repo: path.basename(repo), error: clip((r.stderr || r.stdout || `exit ${r.code}`).trim(), 300) });
+        for (const it of batch) {
+          const text = got[it.ticket];
+          if (typeof text === "string" && text.trim()) {
+            it.description = clip(redactHome(redactSecrets(text.trim()), os.homedir()), 600);
+            result.described++;
+          } else {
+            result.undescribed.push(it.id);
+          }
         }
       }
     }
+  } finally {
+    // Dry runs return the request files for inspection; live runs leave nothing behind.
+    if (!opts.dryRun) rmSync(staging, { recursive: true, force: true });
   }
   return result;
 }
@@ -446,6 +453,11 @@ export function applyTriage(
         }
         if (t.lease_until && Date.parse(t.lease_until) > now) {
           skip(it, "ticket has a live lease");
+          continue;
+        }
+        // The plan's notify_remote is from scan time; a mirror enabled since then still carries this write off the machine.
+        if ((ws.config.mailbox.enabled || ws.config.github.enabled) && !approved.has(it.id)) {
+          skip(it, `${it.action} needs --approve ${it.id} (this repo mirrors to mailbox or GitHub)`);
           continue;
         }
         const note = [
